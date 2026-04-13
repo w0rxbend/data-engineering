@@ -49,7 +49,7 @@
         <dependency>
             <groupId>io.confluent</groupId>
             <artifactId>kafka-connect-storage-partitioner</artifactId>
-            <version>11.2.16</version>
+            <version>11.2.27</version>
         </dependency>
 
         <dependency>
