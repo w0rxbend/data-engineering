@@ -1,6 +1,6 @@
 ThisBuild / version := "0.1.0-SNAPSHOT"
 
-ThisBuild / scalaVersion := "2.13.14"
+ThisBuild / scalaVersion := "2.13.18"
 
 val circeVersion = "0.14.2"
 val flinkVersion = "1.20.0"
@@ -9,7 +9,7 @@ lazy val root = (project in file("."))
   .settings(
     name := "flink-kafka-s3sink-job",
     version := "0.1",
-    scalaVersion := "2.13.14",
+    scalaVersion := "2.13.18",
     resolvers += Resolver.mavenLocal,
     javacOptions ++= Seq("-source", "11", "-target", "11"),
     libraryDependencies ++= Seq(
