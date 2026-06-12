@@ -3,7 +3,7 @@ ThisBuild / version := "0.1.0-SNAPSHOT"
 ThisBuild / scalaVersion := "2.13.14"
 
 val circeVersion = "0.14.2"
-val flinkVersion = "1.20.0"
+val flinkVersion = "1.20.5"
 
 lazy val root = (project in file("."))
   .settings(
