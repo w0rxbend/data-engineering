@@ -38,7 +38,7 @@ lazy val root = (project in file("."))
       ).map(_ % "provided")
       ++ Seq(
         "org.apache.flink" % "flink-connector-kafka" % "3.2.0-1.19",
-        "org.apache.kafka" % "kafka-clients" % "3.8.0"
+        "org.apache.kafka" % "kafka-clients" % "4.3.1"
       )
       ++ Seq(
         "io.circe" %% "circe-core",
