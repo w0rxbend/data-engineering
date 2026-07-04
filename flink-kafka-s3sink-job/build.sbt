@@ -32,7 +32,7 @@ lazy val root = (project in file("."))
       "org.apache.flink" % "flink-azure-fs-hadoop" % flinkVersion
     )
       ++ Seq(
-        "org.apache.logging.log4j" % "log4j-api" % "2.24.0",
+        "org.apache.logging.log4j" % "log4j-api" % "2.26.1",
         "org.apache.logging.log4j" % "log4j-slf4j-impl" % "2.24.0",
         "org.apache.logging.log4j" % "log4j-core" % "2.24.0"
       ).map(_ % "provided")
