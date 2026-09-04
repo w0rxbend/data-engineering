@@ -1,0 +1,24 @@
+package build.common
+
+import mill.*
+import mill.scalalib.*
+import build.*
+
+/**
+ * Shared, dependency-light domain model for every example in this repository.
+ *
+ * It is a `Cross` module, which means Mill builds one copy per Scala version
+ * listed in `Versions.allScala`. An example that must run on Scala 2.12
+ * (Apache Flink) and one that must run on Scala 3 therefore share the exact
+ * same domain vocabulary without either of them compromising on its Scala
+ * version. Refer to a specific build with `build.common("3.3.8")`.
+ */
+object `package` extends Cross[CommonModule](Versions.allScala)
+
+trait CommonModule extends CrossScalaModule with BaseScalaModule {
+  // Intentionally dependency-free: this module is compiled for Scala 2.12,
+  // 2.13 and 3, and every extra library would have to support all three.
+  // Each example picks its own JSON library instead.
+
+  object test extends ScalaTests with MunitTests
+}

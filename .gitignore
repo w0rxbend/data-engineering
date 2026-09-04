@@ -2,3 +2,9 @@
 data-engineering-tools/kafka-connect/kafka-connect
 .metals
 **/.metals
+# Mill build output and IDE/build-server metadata
+out/
+.bloop/
+.bsp/
+.idea/
+target/

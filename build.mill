@@ -1,0 +1,51 @@
+package build
+
+import mill.*
+import mill.scalalib.*
+import mill.scalalib.scalafmt.ScalafmtModule
+
+/**
+ * Root build file for the data-engineering monorepo.
+ *
+ * Every runnable example lives under `examples/<nn>-<name>/` and has its own
+ * `package.mill` file. Shared domain code lives in `common/`, which is
+ * cross-compiled so that examples pinned to older Scala versions (Apache Flink
+ * still ships a Scala 2.12 API, Apache Spark a Scala 2.13 one) can all depend
+ * on the very same domain model.
+ */
+object Versions {
+  val scala212 = "2.12.21"
+  val scala213 = "2.13.18"
+  val scala3   = "3.3.8"
+
+  /** All Scala versions the shared `common` module is built for. */
+  val allScala = Seq(scala212, scala213, scala3)
+
+  /**
+   * Java release every module compiles against. 17 is the highest version that
+   * every engine used in this repository (Flink, Spark, Trino clients) accepts.
+   */
+  val jvm = "temurin:17.0.16"
+
+  val munit     = "1.3.5"
+  val scalatest = "3.2.20"
+}
+
+/** Settings shared by every Scala module in the repository. */
+trait BaseScalaModule extends ScalaModule with ScalafmtModule {
+  def jvmVersion = Versions.jvm
+
+  def scalacOptions = Seq("-deprecation", "-feature", "-unchecked", "-release", "17")
+}
+
+/** Settings shared by every Java module in the repository. */
+trait BaseJavaModule extends JavaModule {
+  def jvmVersion = Versions.jvm
+
+  def javacOptions = Seq("-release", "17", "-Xlint:all")
+}
+
+/** Test module wired to MUnit, the default test framework of this repository. */
+trait MunitTests extends TestModule.Munit {
+  def mvnDeps = Seq(mvn"org.scalameta::munit:${Versions.munit}")
+}
