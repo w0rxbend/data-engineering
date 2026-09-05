@@ -33,17 +33,17 @@ object ShipmentSlaPatterns {
   val DeliveredStep  = "delivered"
 
   /**
-   * `Created` immediately followed by `Dispatched`, within the promised handover time.
+   * `Created` followed by `Dispatched`, within the promised handover time.
    *
-   * `next` is the right operator here: between creation and dispatch there is no legitimate other milestone. An order
-   * that jumps straight from `Created` to `Delivered` (a missing warehouse scan) therefore breaks the partial match and
-   * is reported as "never dispatched", which is exactly the operational problem worth alerting on.
+   * `followedBy` deliberately retains the partial match when an unexpected event appears. With strict `next`, an order
+   * that jumps from `Created` straight to `Delivered` would discard the partial match immediately and therefore never
+   * time out; the missing dispatch scan would be silently lost instead of reported.
    */
   def dispatchPattern(policy: SlaPolicy): Pattern[ShipmentRecords.Event, ShipmentRecords.Event] =
     Pattern
       .begin[ShipmentRecords.Event](CreatedStep)
       .where(hasStatus(ShipmentStatus.Created))
-      .next(DispatchedStep)
+      .followedBy(DispatchedStep)
       .where(hasStatus(ShipmentStatus.Dispatched))
       .within(Duration.ofMillis(policy.dispatchWithinMillis))
 

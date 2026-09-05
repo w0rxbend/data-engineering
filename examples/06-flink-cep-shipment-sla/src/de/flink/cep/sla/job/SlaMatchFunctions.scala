@@ -27,8 +27,8 @@ private[job] object SlaMatches {
  * Handles the first promise: an order that was created must be dispatched inside the promised window.
  *
  * A completed match means the promise was kept and leaves through the main output. A partial match that is still
- * incomplete when the watermark passes the deadline means the parcel never left the warehouse; it leaves through the
- * breach side output.
+ * incomplete when the watermark passes the deadline means no dispatch scan was recorded; it leaves through the breach
+ * side output. The scan history alone cannot prove the parcel's physical location.
  */
 @SerialVersionUID(1L)
 final class DispatchSlaFunction(policy: SlaPolicy)

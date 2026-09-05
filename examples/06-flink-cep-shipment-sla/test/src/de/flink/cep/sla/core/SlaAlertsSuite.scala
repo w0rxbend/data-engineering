@@ -38,14 +38,15 @@ final class SlaAlertsSuite extends munit.FunSuite {
     assertEquals(alert.message, "Order order-0000042 was delivered 15.0 hours after dispatch.")
   }
 
-  test("a parcel that never left the warehouse is dated by its deadline, because no later event exists") {
+  test("a missing dispatch scan reports the observed creation time separately from the deadline") {
     val alert = SlaAlerts.notDispatchedInTime(milestone(ShipmentStatus.Created, 1), policy)
     assertEquals(alert.outcome, SlaOutcome.NotDispatchedInTime)
     assert(alert.outcome.isBreach)
     assertEquals(alert.lastObservedStatus, ShipmentStatus.Created)
-    assertEquals(alert.lastObservedAtEpochMillis, 5 * oneHour)
+    assertEquals(alert.lastObservedAtEpochMillis, oneHour)
+    assertEquals(alert.evaluatedAtEpochMillis, 5 * oneHour)
     assertEquals(alert.latenessMillis, 0L)
-    assertEquals(alert.message, "Order order-0000042 was still in the warehouse 4.0 hours after it was created.")
+    assertEquals(alert.message, "Order order-0000042 had no dispatch scan 4.0 hours after it was created.")
   }
 
   test("a parcel lost with the carrier is reported as a delivery breach") {

@@ -47,6 +47,7 @@ object ShipmentJson {
       "breach"         -> Some(if (alert.outcome.isBreach) "true" else "false"),
       "lastStatus"     -> Some(Json.string(alert.lastObservedStatus.toString)),
       "lastObservedAt" -> Some(Json.num(alert.lastObservedAtEpochMillis)),
+      "evaluatedAt"    -> Some(Json.num(alert.evaluatedAtEpochMillis)),
       "deadline"       -> Some(Json.num(alert.deadlineEpochMillis)),
       "latenessMs"     -> Some(Json.num(alert.latenessMillis)),
       "message"        -> Some(Json.string(alert.message))

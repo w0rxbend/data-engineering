@@ -101,6 +101,20 @@ object JobConfig {
           parsed
       }
 
+    def nonNegativeMillis(name: String, fallback: Long): Long =
+      settings.get(name).map(_.trim).filter(_.nonEmpty) match {
+        case None      => fallback
+        case Some(raw) =>
+          val parsed =
+            try raw.toLong
+            catch {
+              case _: NumberFormatException =>
+                throw new IllegalArgumentException(s"$name must be a whole number of milliseconds, but was '$raw'")
+            }
+          if (parsed < 0L) throw new IllegalArgumentException(s"$name must not be negative, but was $parsed")
+          parsed
+      }
+
     JobConfig(
       bootstrapServers = string(KafkaBootstrapServers, default.bootstrapServers),
       shipmentTopic = string(ShipmentTopic, default.shipmentTopic),
@@ -111,7 +125,7 @@ object JobConfig {
         dispatchWithinMillis = positiveMillis(DispatchWithin, default.policy.dispatchWithinMillis),
         deliverWithinMillis = positiveMillis(DeliverWithin, default.policy.deliverWithinMillis)
       ),
-      maxOutOfOrdernessMillis = positiveMillis(MaxOutOfOrderness, default.maxOutOfOrdernessMillis),
+      maxOutOfOrdernessMillis = nonNegativeMillis(MaxOutOfOrderness, default.maxOutOfOrdernessMillis),
       checkpointIntervalMillis = positiveMillis(CheckpointInterval, default.checkpointIntervalMillis)
     )
   }

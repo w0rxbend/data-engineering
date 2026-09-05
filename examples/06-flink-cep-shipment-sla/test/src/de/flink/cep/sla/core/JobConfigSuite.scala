@@ -35,4 +35,10 @@ final class JobConfigSuite extends munit.FunSuite {
       JobConfig.default.shipmentTopic
     )
   }
+
+  test("zero out-of-orderness is valid for an ordered carrier feed") {
+    val config = JobConfig.from(Map("MAX_OUT_OF_ORDERNESS_MS" -> "0"), Map.empty)
+    assertEquals(config.maxOutOfOrdernessMillis, 0L)
+    intercept[IllegalArgumentException](JobConfig.from(Map("MAX_OUT_OF_ORDERNESS_MS" -> "-1"), Map.empty))
+  }
 }

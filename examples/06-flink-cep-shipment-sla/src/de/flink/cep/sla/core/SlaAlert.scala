@@ -51,9 +51,12 @@ object SlaOutcome {
  * @param outcome
  *   what happened: promise kept, or promise broken
  * @param lastObservedStatus
- *   the newest shipment milestone the matcher actually saw for this order
+ *   the newest shipment milestone participating in this partial or completed match; skipped, out-of-order milestones
+ *   are deliberately not represented here
  * @param lastObservedAtEpochMillis
  *   event time of that milestone
+ * @param evaluatedAtEpochMillis
+ *   event time at which the outcome became knowable; the matching event for a completion, or the deadline for a timeout
  * @param deadlineEpochMillis
  *   event time by which the next milestone was due
  * @param message
@@ -64,12 +67,13 @@ final case class SlaAlert(
     outcome: SlaOutcome,
     lastObservedStatus: ShipmentStatus,
     lastObservedAtEpochMillis: Long,
+    evaluatedAtEpochMillis: Long,
     deadlineEpochMillis: Long,
     message: String
 ) {
 
   /** Negative while there is still time left, positive once the deadline has passed. */
-  def latenessMillis: Long = lastObservedAtEpochMillis - deadlineEpochMillis
+  def latenessMillis: Long = evaluatedAtEpochMillis - deadlineEpochMillis
 }
 
 /**
@@ -90,6 +94,7 @@ object SlaAlerts {
       outcome = SlaOutcome.DispatchedInTime,
       lastObservedStatus = ShipmentStatus.Dispatched,
       lastObservedAtEpochMillis = dispatched.occurredAtEpochMillis,
+      evaluatedAtEpochMillis = dispatched.occurredAtEpochMillis,
       deadlineEpochMillis = policy.dispatchDeadline(created),
       message = s"Order ${created.orderId.value} was dispatched ${hours(
           dispatched.occurredAtEpochMillis - created.occurredAtEpochMillis
@@ -103,6 +108,7 @@ object SlaAlerts {
       outcome = SlaOutcome.DeliveredInTime,
       lastObservedStatus = ShipmentStatus.Delivered,
       lastObservedAtEpochMillis = delivered.occurredAtEpochMillis,
+      evaluatedAtEpochMillis = delivered.occurredAtEpochMillis,
       deadlineEpochMillis = policy.deliveryDeadline(dispatched),
       message = s"Order ${delivered.orderId.value} was delivered ${hours(
           delivered.occurredAtEpochMillis - dispatched.occurredAtEpochMillis
@@ -110,8 +116,9 @@ object SlaAlerts {
     )
 
   /**
-   * A breach of the first promise. Only the `Created` event is known here -- the whole point is that the `Dispatched`
-   * event never arrived -- so the deadline, not an observed event, dates the alert.
+   * A breach of the first promise. Only the matching `Created` event is represented here -- the whole point is that no
+   * `Dispatched` event arrived -- so the deadline, not an observed event, dates the alert. An unrelated or out-of-order
+   * milestone may have passed through the stream without satisfying the missing dispatch scan.
    */
   def notDispatchedInTime(created: Shipment, policy: SlaPolicy): SlaAlert = {
     val deadline = policy.dispatchDeadline(created)
@@ -119,9 +126,10 @@ object SlaAlerts {
       orderId = created.orderId,
       outcome = SlaOutcome.NotDispatchedInTime,
       lastObservedStatus = ShipmentStatus.Created,
-      lastObservedAtEpochMillis = deadline,
+      lastObservedAtEpochMillis = created.occurredAtEpochMillis,
+      evaluatedAtEpochMillis = deadline,
       deadlineEpochMillis = deadline,
-      message = s"Order ${created.orderId.value} was still in the warehouse ${hours(
+      message = s"Order ${created.orderId.value} had no dispatch scan ${hours(
           policy.dispatchWithinMillis
         )} after it was created."
     )
@@ -134,7 +142,8 @@ object SlaAlerts {
       orderId = dispatched.orderId,
       outcome = SlaOutcome.NotDeliveredInTime,
       lastObservedStatus = ShipmentStatus.Dispatched,
-      lastObservedAtEpochMillis = deadline,
+      lastObservedAtEpochMillis = dispatched.occurredAtEpochMillis,
+      evaluatedAtEpochMillis = deadline,
       deadlineEpochMillis = deadline,
       message = s"Order ${dispatched.orderId.value} was still undelivered ${hours(
           policy.deliverWithinMillis

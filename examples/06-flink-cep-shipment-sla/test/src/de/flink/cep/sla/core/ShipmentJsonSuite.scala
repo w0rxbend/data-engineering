@@ -37,6 +37,8 @@ final class ShipmentJsonSuite extends munit.FunSuite {
     assert(json.contains("\"outcome\":\"NotDeliveredInTime\""), json)
     assert(json.contains("\"breach\":true"), json)
     assert(json.contains("\"lastStatus\":\"Dispatched\""), json)
+    assert(json.contains("\"lastObservedAt\":1700000000000"), json)
+    assert(json.contains("\"evaluatedAt\":1700007200000"), json)
     assert(json.contains("\"deadline\":1700007200000"), json)
     assert(json.contains("\"latenessMs\":0"), json)
   }

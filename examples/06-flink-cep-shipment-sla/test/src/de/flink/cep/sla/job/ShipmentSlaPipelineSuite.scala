@@ -33,6 +33,7 @@ final class ShipmentSlaPipelineSuite extends munit.FunSuite {
    *   - `order-stuck` is created and never dispatched.
    *   - `order-lost` is dispatched and never delivered.
    *   - `order-slow` is dispatched three hours too late.
+   *   - `order-skipped-scan` reaches delivery without any dispatch scan.
    */
   private val milestones: List[Shipment] = List(
     milestone("order-happy", ShipmentStatus.Created, 0),
@@ -40,6 +41,8 @@ final class ShipmentSlaPipelineSuite extends munit.FunSuite {
     milestone("order-happy", ShipmentStatus.Dispatched, 1),
     milestone("order-lost", ShipmentStatus.Created, 2),
     milestone("order-slow", ShipmentStatus.Created, 2),
+    milestone("order-skipped-scan", ShipmentStatus.Created, 3),
+    milestone("order-skipped-scan", ShipmentStatus.Delivered, 4),
     milestone("order-lost", ShipmentStatus.Dispatched, 3),
     milestone("order-happy", ShipmentStatus.Delivered, 10),
     milestone("order-slow", ShipmentStatus.Dispatched, 9),
@@ -101,7 +104,14 @@ final class ShipmentSlaPipelineSuite extends munit.FunSuite {
     )
   }
 
+  test("a delivery event cannot erase the evidence of a missing dispatch scan") {
+    assertEquals(
+      alerts.filter(_._1 == "order-skipped-scan"),
+      List(("order-skipped-scan", "NotDispatchedInTime"))
+    )
+  }
+
   test("the two patterns of one order do not interfere with another order's state machine") {
-    assertEquals(alerts.size, 7)
+    assertEquals(alerts.size, 8)
   }
 }

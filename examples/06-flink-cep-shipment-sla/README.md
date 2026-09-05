@@ -37,9 +37,9 @@ The operations team needs to know two things, per order, as they happen:
 
 1. **The promise was kept.** `Created` was followed by `Dispatched` in time, `Dispatched` by
    `Delivered` in time. Useful for the daily SLA percentage.
-2. **The promise was broken.** Either the parcel is still in the warehouse hours after the order was
+2. **The promise was broken.** Either no dispatch scan was recorded hours after the order was
    accepted, or it left the warehouse days ago and was never scanned as delivered. Each of these is
-   somebody's afternoon: a pallet that was not loaded, a parcel lost in a hub.
+   somebody's afternoon: a missing hand-off scan, a pallet that was not loaded, or a parcel lost in a hub.
 
 Nothing tells the system that a parcel is stuck. The absence of the next event is the signal, and a
 deadline is the only way to notice an absence.
@@ -77,12 +77,12 @@ Pattern
 - `begin(name)` starts a pattern and names its first step. The names are how a match is read back:
   Flink hands a match over as `Map[stepName, List[event]]`.
 - `next(name)` demands **strict contiguity** — the very next event for that order must match. Any
-  other milestone in between destroys the partial match. Between creation and dispatch there is no
-  legitimate other milestone, so this is the honest operator here: an order that jumps straight from
-  `Created` to `Delivered`, a missing warehouse scan, should not quietly count as dispatched.
-- `followedBy(name)`, used by the delivery pattern, is **relaxed**: unrelated events in between are
-  skipped. While a parcel is with the carrier, a re-scan or a partial shipment may legitimately turn
-  up and must not cancel the watch.
+  other milestone in between destroys the partial match. That is intentionally *not* used here:
+  destroying a `Created` partial match when a `Delivered` scan arrives would also destroy the only
+  state capable of reporting the missing dispatch scan.
+- `followedBy(name)` is **relaxed**: unrelated events are skipped while the partial match remains
+  alive. Both patterns use it. For dispatch, that preserves evidence of a missing scan; for delivery,
+  it tolerates legitimate carrier re-scans.
 - `within(duration)` bounds the whole sequence **in event time**, and is what turns this from a
   matcher into an SLA monitor.
 
@@ -160,12 +160,15 @@ All commands are run from the repository root.
 ### 1. Start the local stack
 
 ```bash
-docker compose -f examples/06-flink-cep-shipment-sla/docker/docker-compose.yml up -d
+docker compose -f examples/06-flink-cep-shipment-sla/docker/docker-compose.yml up -d --wait
 ```
 
 This starts Kafka (in KRaft mode, so no ZooKeeper), a one-shot container that creates the three
-topics, a Kafka web user interface, a Flink JobManager and a Flink TaskManager. The `depends_on`
-conditions make `up` wait until each piece is healthy, so there is nothing to poll by hand.
+topics, a Kafka web user interface, a Flink JobManager and a Flink TaskManager. `--wait` blocks for
+the health checks, while `service_completed_successfully` prevents the dependent services from
+starting if topic creation fails. Verify the one-shot step with `docker compose -f
+examples/06-flink-cep-shipment-sla/docker/docker-compose.yml ps --all kafka-init`; it must say
+`Exited (0)`.
 
 | Service | Host port | URL / address |
 | --- | --- | --- |
@@ -254,10 +257,10 @@ Expected output, one JSON object per breached order:
 
 ```json
 {"orderId":"order-0821675","outcome":"NotDispatchedInTime","breach":true,"lastStatus":"Created",
- "lastObservedAt":1700162660277,"deadline":1700162660277,"latenessMs":0,
- "message":"Order order-0821675 was still in the warehouse 4.0 hours after it was created."}
+ "lastObservedAt":1700148260277,"evaluatedAt":1700162660277,"deadline":1700162660277,"latenessMs":0,
+ "message":"Order order-0821675 had no dispatch scan 4.0 hours after it was created."}
 {"orderId":"order-0744518","outcome":"NotDeliveredInTime","breach":true,"lastStatus":"Dispatched",
- "lastObservedAt":1700521199834,"deadline":1700521199834,"latenessMs":0,
+ "lastObservedAt":1700348399834,"evaluatedAt":1700521199834,"deadline":1700521199834,"latenessMs":0,
  "message":"Order order-0744518 was still undelivered 48.0 hours after dispatch."}
 ```
 
@@ -268,6 +271,11 @@ The same command against `shipment-sla-completions` shows the kept promises
 
 Both topics are also browsable in the Kafka web user interface at <http://localhost:10680> —
 *Topics* → `shipment-sla-breaches` → *Messages*.
+
+The alert sinks are intentionally **at least once**. A failure after Kafka accepts an alert but
+before Flink checkpoints its source position can emit that alert again after recovery. Consumers
+must deduplicate by `(orderId, outcome, deadline)` if duplicates are not acceptable. A fresh job
+submission also starts from the earliest shipment offset and replays every alert by design.
 
 ### 5. Run the tests
 
@@ -290,9 +298,9 @@ or a cluster:
   run the producer again with `ORDER_COUNT=50`. The new events push the watermark forward, and the
   breaches left pending from the previous batch appear immediately. This is the single most
   surprising property of event-time processing, and it is worth seeing once.
-- **Swap `next` for `followedBy` in `dispatchPattern`.** Rebuild, resubmit, and compare the breach
-  counts. Orders whose warehouse scan was skipped stop being reported as "never dispatched" — the
-  relaxed operator happily skips over the unexpected event.
+- **Swap `followedBy` for `next` in `dispatchPattern`.** Add `Created` followed directly by
+  `Delivered`, rebuild and compare the breach count. The strict operator discards the partial match,
+  demonstrating why the missing dispatch scan becomes invisible.
 - **Kill the task manager** with `docker stop de-06-taskmanager` while the job runs, then start it
   again. Flink restarts the job from the last checkpoint and the half-finished pattern matches are
   restored with it, because the partial matches are part of the operator's state.
