@@ -1,0 +1,31 @@
+package build.examples.`03-ksqldb-orders`
+
+import mill.*
+import mill.scalalib.*
+import build.*
+
+/**
+ * Example 03: an operations dashboard defined in SQL on top of Apache Kafka topics, using ksqlDB.
+ *
+ * The `sql/` folder is registered as the module's resource folder, so the very same files a reader browses in the
+ * repository are the ones the program loads from the classpath at runtime. That keeps a single copy of every statement.
+ */
+object `package` extends BaseScalaModule {
+  def scalaVersion = Versions.scala3
+
+  def moduleDeps = Seq(build.common(Versions.scala3))
+
+  def mvnDeps = Seq(
+    // sttp client4: the HTTP client, used in "direct style" (plain blocking
+    // calls, no Future/IO wrapper) through its synchronous backend.
+    mvn"com.softwaremill.sttp.client4::core:4.0.26",
+    // upickle: reads and writes JSON, the format the ksqlDB REST API speaks.
+    mvn"com.lihaoyi::upickle:4.4.3"
+  )
+
+  def resources = Task.Sources(moduleDir / "sql")
+
+  def mainClass = Some("de.ksqldb.Main")
+
+  object test extends ScalaTests with MunitTests
+}
