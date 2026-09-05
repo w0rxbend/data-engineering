@@ -1,0 +1,61 @@
+package build.examples.`06-flink-cep-shipment-sla`
+
+import mill.*
+import mill.scalalib.*
+import build.*
+
+/**
+ * Example 06: Apache Flink CEP (Complex Event Processing) watches the shipment lifecycle of every order and raises an
+ * alert whenever a delivery service-level agreement is missed.
+ *
+ * Scala 2.12 is not a stylistic choice: the Apache Flink Scala helpers and connectors are still published for Scala
+ * 2.12 only, and a Flink cluster puts a Scala 2.12 runtime on the classpath of every job it runs.
+ */
+/** Versions pinned by this example only, so the root build stays untouched. */
+object ExampleVersions {
+  val flink               = "1.20.1"
+  val flinkKafkaConnector = "3.4.0-1.20"
+  val circe               = "0.14.10"
+}
+
+object `package` extends BaseScalaModule {
+
+  def scalaVersion = Versions.scala212
+
+  def moduleDeps = Seq(build.common(Versions.scala212))
+
+  /**
+   * Dependencies that are compiled against but NOT packaged into the job jar. A Flink cluster already provides these;
+   * shipping a second copy inside the jar leads to class loading conflicts.
+   */
+  def compileMvnDeps = Seq(
+    mvn"org.apache.flink:flink-streaming-java:${ExampleVersions.flink}",
+    mvn"org.apache.flink:flink-clients:${ExampleVersions.flink}",
+    mvn"org.apache.flink:flink-connector-base:${ExampleVersions.flink}"
+  )
+
+  /**
+   * Dependencies that the cluster does not provide and that must be shipped. `flink-cep` is an optional Flink library:
+   * it is not on a stock cluster's classpath, so the job jar has to carry it.
+   */
+  def mvnDeps = Seq(
+    mvn"org.apache.flink:flink-cep:${ExampleVersions.flink}",
+    mvn"org.apache.flink:flink-connector-kafka:${ExampleVersions.flinkKafkaConnector}",
+    mvn"org.apache.kafka:kafka-clients:3.9.0",
+    mvn"io.circe::circe-core:${ExampleVersions.circe}",
+    mvn"io.circe::circe-parser:${ExampleVersions.circe}"
+  )
+
+  def mainClass = Some("de.flink.cep.sla.job.Main")
+
+  object test extends ScalaTests with MunitTests with mill.scalalib.scalafmt.ScalafmtModule {
+
+    /** The pure core needs no Flink at all; the end-to-end suite runs a real job on a local mini cluster. */
+    def mvnDeps = super.mvnDeps() ++ Seq(
+      mvn"org.apache.flink:flink-streaming-java:${ExampleVersions.flink}",
+      mvn"org.apache.flink:flink-clients:${ExampleVersions.flink}",
+      mvn"org.apache.flink:flink-connector-base:${ExampleVersions.flink}",
+      mvn"org.apache.flink:flink-test-utils:${ExampleVersions.flink}"
+    )
+  }
+}

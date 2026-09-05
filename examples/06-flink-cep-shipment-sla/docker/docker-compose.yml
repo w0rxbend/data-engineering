@@ -1,0 +1,137 @@
+# Local stack for example 06: Apache Kafka -> Apache Flink CEP -> Apache Kafka.
+#
+# Every published host port is inside this example's reserved range 10600-10699,
+# so this stack can run next to every other example in the repository.
+name: de-06-flink-cep
+
+services:
+  # Apache Kafka in KRaft mode: one container acts as both the controller (the
+  # component that stores cluster metadata) and the broker, so no ZooKeeper is
+  # needed.
+  kafka:
+    image: apache/kafka:3.9.0
+    container_name: de-06-kafka
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # INTERNAL is what other containers use, EXTERNAL is what your machine uses.
+      # A Kafka client is redirected to the address advertised for the listener it
+      # connected on, which is why the two must be configured separately.
+      # The controller listener needs a routable address: Kafka refuses to advertise 0.0.0.0.
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,CONTROLLER://kafka:9093,EXTERNAL://0.0.0.0:10692
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:10692
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      CLUSTER_ID: de-06-flink-cep-cluster
+    ports:
+      - "10692:10692"
+    healthcheck:
+      test: ["CMD", "/opt/kafka/bin/kafka-broker-api-versions.sh", "--bootstrap-server", "localhost:9092"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 15s
+    networks: [de06]
+
+  # A one-shot container that creates the three topics and then exits. Automatic
+  # topic creation is switched off on the broker on purpose: a typo in a topic
+  # name should fail loudly instead of quietly creating an empty topic.
+  kafka-init:
+    image: apache/kafka:3.9.0
+    container_name: de-06-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      for topic in shipments shipment-sla-breaches shipment-sla-completions; do
+      /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic \"\$$topic\" --partitions 3 --replication-factor 1;
+      done &&
+      echo 'topics are ready'
+      "
+    networks: [de06]
+
+  # A read-only web view of the broker: topics, partitions and the messages in
+  # them. This is where the alerts produced by the job become visible.
+  kafka-ui:
+    image: kafbat/kafka-ui:v1.1.0
+    container_name: de-06-kafka-ui
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    ports:
+      # Web user interface: http://localhost:10680
+      - "10680:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: de-06
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      DYNAMIC_CONFIG_ENABLED: "false"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:8080/actuator/health | grep -q UP"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 20s
+    networks: [de06]
+
+  # The job manager is the brain of a Flink cluster: it accepts jobs, splits
+  # them into tasks and hands those to the task managers.
+  jobmanager:
+    image: apache/flink:1.20.1-scala_2.12-java17
+    container_name: de-06-jobmanager
+    command: jobmanager
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    ports:
+      # Flink web user interface: http://localhost:10681
+      - "10681:8081"
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: jobmanager
+        rest.address: 0.0.0.0
+        rest.bind-address: 0.0.0.0
+        taskmanager.numberOfTaskSlots: 4
+        parallelism.default: 2
+        execution.checkpointing.mode: EXACTLY_ONCE
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8081/overview > /dev/null"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 20s
+    networks: [de06]
+
+  # The task manager is the muscle: it runs the actual operators and holds the
+  # state of the pattern matcher.
+  taskmanager:
+    image: apache/flink:1.20.1-scala_2.12-java17
+    container_name: de-06-taskmanager
+    command: taskmanager
+    depends_on:
+      jobmanager:
+        condition: service_healthy
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: jobmanager
+        taskmanager.numberOfTaskSlots: 4
+        parallelism.default: 2
+        execution.checkpointing.mode: EXACTLY_ONCE
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q 'Successful registration at resource manager' /opt/flink/log/*taskexecutor*.log"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 20s
+    networks: [de06]
+
+networks:
+  de06:
+    name: de-06-flink-cep
