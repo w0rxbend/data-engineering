@@ -8,7 +8,9 @@ import org.apache.arrow.vector.types.pojo.Schema
 import java.io.{FileInputStream, FileOutputStream}
 import java.nio.channels.Channels
 import java.nio.charset.StandardCharsets
+import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.nio.file.{Files, Path}
+import java.security.MessageDigest
 import scala.util.Using
 
 /**
@@ -126,19 +128,20 @@ object ArrowIpc {
       batchSize: Int
   )(fill: (VectorSchemaRoot, Seq[A]) => Unit): Long = {
     require(batchSize > 0, s"batchSize must be positive, was $batchSize")
-    Option(target.getParent).foreach(Files.createDirectories(_))
-    Using.resource(VectorSchemaRoot.create(schema, allocator)) { root =>
-      Using.resource(new FileOutputStream(target.toFile)) { output =>
-        Using.resource(new ArrowFileWriter(root, null, Channels.newChannel(output))) { writer =>
-          writer.start()
-          rows.grouped(batchSize).foreach { batch =>
-            root.allocateNew()
-            fill(root, batch)
-            root.setRowCount(batch.size)
-            writer.writeBatch()
-            root.clear()
+    ExchangeIntegrity.replaceFile(target) { temporary =>
+      Using.resource(VectorSchemaRoot.create(schema, allocator)) { root =>
+        Using.resource(new FileOutputStream(temporary.toFile)) { output =>
+          Using.resource(new ArrowFileWriter(root, null, Channels.newChannel(output))) { writer =>
+            writer.start()
+            rows.grouped(batchSize).foreach { batch =>
+              root.allocateNew()
+              fill(root, batch)
+              root.setRowCount(batch.size)
+              writer.writeBatch()
+              root.clear()
+            }
+            writer.end()
           }
-          writer.end()
         }
       }
     }
@@ -217,4 +220,70 @@ object OrderLineVectors {
       unitPrice = root.getVector(C.unitPriceCents).asInstanceOf[BigIntVector],
       lineTotal = root.getVector(C.lineTotalCents).asInstanceOf[BigIntVector]
     )
+}
+
+/** Integrity and publication rules for files exchanged with the native Polars process. */
+private[bridge] object ExchangeIntegrity {
+
+  /**
+   * Writes a sibling temporary file and publishes it only after `write` completes.
+   *
+   * Keeping the temporary file beside the target makes the final move stay on one filesystem. The move happens only
+   * after the writer has closed the temporary file, so an ordinary writer failure cannot truncate the previous file.
+   * Java does not promise that replacing an existing file is atomic on every filesystem; callers that need that
+   * guarantee must put a transactional store around this exchange directory.
+   */
+  def replaceFile[A](target: Path)(write: Path => A): A = {
+    val parent = target.toAbsolutePath.getParent
+    Files.createDirectories(parent)
+    val temporary = Files.createTempFile(parent, s".${target.getFileName}.", ".tmp")
+    try {
+      val result = write(temporary)
+      moveIntoPlace(temporary, target)
+      result
+    } finally Files.deleteIfExists(temporary)
+  }
+
+  /** A deterministic manifest tying a Polars result to both Arrow inputs that produced it. */
+  def inputManifest(orderLines: Path, regions: Path): String =
+    Seq(orderLines, regions)
+      .map(path => s"${path.getFileName}  ${sha256(path)}")
+      .mkString("\n") + "\n"
+
+  /** Rejects a missing or stale result manifest before its Arrow file is opened. */
+  def verifyInputManifest(dataSet: DataSet): Either[String, Unit] = {
+    val manifest = dataSet.polarsInputManifest
+    if (!Files.exists(manifest)) {
+      Left(s"Polars result has no input manifest at $manifest; rerun the Polars container")
+    } else {
+      val expected = inputManifest(dataSet.orderLinesArrow, dataSet.regionsArrow)
+      val actual   = Files.readString(manifest, StandardCharsets.UTF_8)
+      Either.cond(
+        actual == expected,
+        (),
+        "Polars result was produced from different Arrow inputs; rerun the Polars container before reading it"
+      )
+    }
+  }
+
+  private def sha256(path: Path): String = {
+    val digest = MessageDigest.getInstance("SHA-256")
+    val input  = Files.newInputStream(path)
+    try {
+      val buffer = new Array[Byte](64 * 1024)
+      var read   = input.read(buffer)
+      while (read >= 0) {
+        if (read > 0) {
+          digest.update(buffer, 0, read)
+        }
+        read = input.read(buffer)
+      }
+    } finally input.close()
+    digest.digest().map(byte => f"${byte & 0xff}%02x").mkString
+  }
+
+  private def moveIntoPlace(source: Path, target: Path): Unit = {
+    Files.move(source, target, REPLACE_EXISTING)
+    ()
+  }
 }

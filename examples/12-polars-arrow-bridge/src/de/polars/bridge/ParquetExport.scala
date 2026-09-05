@@ -6,6 +6,7 @@ import org.apache.arrow.vector.ipc.ArrowFileReader
 
 import java.io.FileInputStream
 import java.nio.file.{Files, Path}
+import scala.jdk.CollectionConverters.*
 import scala.util.Using
 
 /**
@@ -32,22 +33,21 @@ object ParquetExport {
    *   the Parquet files that were produced
    */
   def fromArrowIpc(allocator: BufferAllocator, arrowIpcFile: Path, targetDirectory: Path): List[Path] = {
-    Files.createDirectories(targetDirectory)
-    // The dataset writer refuses to write into a directory that already holds files, so that it can never half-replace
-    // an existing dataset. Removing yesterday's files first makes re-running the example a full overwrite.
-    parquetFilesIn(targetDirectory).foreach(Files.delete(_))
-    Using.resource(new FileInputStream(arrowIpcFile.toFile)) { input =>
-      Using.resource(new ArrowFileReader(input.getChannel, allocator)) { reader =>
-        DatasetFileWriter.write(
-          allocator,
-          reader,
-          FileFormat.PARQUET,
-          targetDirectory.toUri.toString,
-          Array.empty[String],
-          1,
-          "order_lines_{i}.parquet"
-        )
+    replaceDirectory(targetDirectory) { stagingDirectory =>
+      Using.resource(new FileInputStream(arrowIpcFile.toFile)) { input =>
+        Using.resource(new ArrowFileReader(input.getChannel, allocator)) { reader =>
+          DatasetFileWriter.write(
+            allocator,
+            reader,
+            FileFormat.PARQUET,
+            stagingDirectory.toUri.toString,
+            Array.empty[String],
+            1,
+            "order_lines_{i}.parquet"
+          )
+        }
       }
+      require(parquetFilesIn(stagingDirectory).nonEmpty, "the native dataset writer produced no Parquet files")
     }
     parquetFilesIn(targetDirectory)
   }
@@ -61,5 +61,31 @@ object ParquetExport {
         .toArray
         .toList
         .map(_.asInstanceOf[Path])
+    }
+
+  /**
+   * Builds a complete dataset beside the target before replacing the old directory.
+   *
+   * A conversion failure leaves the old dataset untouched. Directory replacement itself is deliberately best-effort:
+   * Java exposes no portable atomic replacement for a non-empty directory, so a process or filesystem failure after the
+   * old directory is removed requires rerunning this deterministic export.
+   */
+  private def replaceDirectory(target: Path)(write: Path => Unit): Unit = {
+    val absolute = target.toAbsolutePath
+    val parent   = absolute.getParent
+    Files.createDirectories(parent)
+    val staging = Files.createTempDirectory(parent, s".${absolute.getFileName}.")
+    try {
+      write(staging)
+      deleteRecursively(absolute)
+      Files.move(staging, absolute)
+    } finally deleteRecursively(staging)
+  }
+
+  private def deleteRecursively(directory: Path): Unit =
+    if (Files.exists(directory)) {
+      Using.resource(Files.walk(directory)) { entries =>
+        entries.iterator().asScala.toVector.reverse.foreach(path => Files.deleteIfExists(path): Unit)
+      }
     }
 }

@@ -10,11 +10,15 @@ The script is deliberately linear and prints what it does at every step, because
 
 from __future__ import annotations
 
+import hashlib
 import os
+import sys
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-import polars as pl
+if TYPE_CHECKING:
+    import polars as pl
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 
@@ -25,6 +29,34 @@ PARQUET_DIR = DATA_DIR / "order_lines_parquet"
 REVENUE_OUT = DATA_DIR / "polars_revenue.arrow"
 TIMING_OUT = DATA_DIR / "polars_timing_millis.txt"
 PLAN_OUT = DATA_DIR / "polars_query_plan.txt"
+INPUT_MANIFEST_OUT = DATA_DIR / "polars_input.sha256"
+
+
+def replace_text(target: Path, contents: str) -> None:
+    """Write a complete sibling file before asking the filesystem to replace the target."""
+    temporary = target.with_name(f".{target.name}.tmp")
+    try:
+        temporary.write_text(contents, encoding="utf-8")
+        os.replace(temporary, target)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(64 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def manifest_for(order_lines: Path, regions: Path) -> str:
+    """Describe the exact two inputs using the format the Scala reader verifies."""
+    return "".join(f"{path.name}  {sha256(path)}\n" for path in (order_lines, regions))
+
+
+def input_manifest() -> str:
+    return manifest_for(ORDER_LINES, REGIONS)
 
 
 def banner(text: str) -> None:
@@ -104,7 +136,11 @@ def parquet_matches_arrow(expected_rows: int) -> None:
 
 
 def main() -> None:
+    global pl
+    import polars as pl
+
     require_inputs()
+    source_manifest = input_manifest()
 
     print(f"polars {pl.__version__}")
     print(f"reading {ORDER_LINES} ({ORDER_LINES.stat().st_size / 1048576:.1f} MiB)")
@@ -114,7 +150,7 @@ def main() -> None:
     banner("the optimised query plan (read it bottom-up)")
     explained = plan.explain()
     print(explained)
-    PLAN_OUT.write_text(explained + "\n")
+    replace_text(PLAN_OUT, explained + "\n")
 
     # `engine="streaming"` runs the plan in chunks instead of loading the whole file at once, so the same query works
     # on a file larger than the machine's memory. On a file this size it mostly demonstrates that the option exists.
@@ -133,8 +169,18 @@ def main() -> None:
     parquet_matches_arrow(total_rows)
 
     # Hand the answer back the same way it arrived: as an Arrow buffer, not as comma-separated text.
-    revenue.write_ipc(REVENUE_OUT)
-    TIMING_OUT.write_text(f"{elapsed_millis:.2f}\n")
+    if input_manifest() != source_manifest:
+        raise SystemExit("Arrow inputs changed while Polars was reading them; rerun the container")
+    # Keep the last valid result if this run fails. The manifest is published last as the completion marker: until then
+    # Scala either accepts the previous result for unchanged inputs or rejects it as stale for changed inputs.
+    temporary_revenue = REVENUE_OUT.with_name(f".{REVENUE_OUT.name}.tmp")
+    try:
+        revenue.write_ipc(temporary_revenue)
+        os.replace(temporary_revenue, REVENUE_OUT)
+    finally:
+        temporary_revenue.unlink(missing_ok=True)
+    replace_text(TIMING_OUT, f"{elapsed_millis:.2f}\n")
+    replace_text(INPUT_MANIFEST_OUT, source_manifest)
 
     banner("written back for the JVM")
     print(f"{REVENUE_OUT}  ({revenue.height} rows)")
@@ -145,4 +191,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) == 4 and sys.argv[1] == "--input-manifest":
+        print(manifest_for(Path(sys.argv[2]), Path(sys.argv[3])), end="")
+    else:
+        main()

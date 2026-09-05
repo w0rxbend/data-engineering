@@ -3,8 +3,12 @@
 This example moves half a million order lines from a Scala 3 program to **Polars** - a DataFrame library written in
 Rust - and back again, without ever turning the data into text. A DataFrame is a table with named, typed columns, the
 same idea as a spreadsheet or a SQL table held in memory. The Scala side writes **Apache Arrow** buffers to disk; the
-Polars side opens those buffers and starts computing immediately, because the bytes on disk are already the bytes it
-wants in memory. Nothing is parsed, nothing is converted, nothing is re-serialised.
+Polars side opens the same typed column layout without formatting and reparsing every value as text.
+
+“Zero-copy” is a layout compatibility claim, not a claim of free input/output: IPC still frames batches and writes
+bytes to disk, and a particular reader may map or copy those buffers according to its implementation and operating
+system. The guarantee demonstrated here is that the boundary preserves the typed column representation and avoids a
+row-by-row CSV-style conversion.
 
 Along the way the example runs the *same* aggregation three ways - in ordinary object-oriented Scala, in Scala directly
 over the Arrow column buffers, and in Polars - prints all three timings, and checks that all three produce identical
@@ -44,7 +48,7 @@ result and prints it next to its own.
 | --- | --- |
 | `OrderLineRow.scala` | Flattens the nested domain `Order` (which owns a list of `OrderLine`s) into one flat row per line, repeating the order-level attributes. Also holds `RegionRow`, the tiny country-to-region dimension table. |
 | `ArrowSchemas.scala` | The Arrow schemas: field names, physical types, nullability. The schema travels *inside* the file, so Polars never needs a copy of this code. |
-| `ArrowIpc.scala` | Writes and reads Arrow IPC files, batch by batch. `OrderLineVectors` resolves the eight columns once per batch instead of once per row. |
+| `ArrowIpc.scala` | Writes and reads Arrow IPC files batch by batch, publishes them through sibling temporary files, and verifies input fingerprints. `OrderLineVectors` resolves the eight columns once per batch instead of once per row. |
 | `ParquetExport.scala` | Converts an Arrow IPC file into a Parquet dataset. |
 | `RevenueAggregation.scala` | The same aggregation twice: `fromRows` over case classes, `fromArrowFile` straight over the column buffers. |
 | `RevenueReport.scala` | Renders results, agreement checks and timings as plain text. |
@@ -72,14 +76,28 @@ prove that compatibility without Docker.
 
 **Parquet is written by the native Arrow library, not by Hadoop.** The `arrow-dataset` artifact bundles the Arrow C++
 code as a native library and can write Parquet straight from Arrow batches. The classic JVM alternative, `parquet-mr`,
-drags in a large part of Apache Hadoop to write one local file.
+drags in a large part of Apache Hadoop to write one local file. A rerun builds the dataset in a sibling staging
+directory and replaces the old dataset only after the native writer succeeds. A failed conversion therefore leaves the
+last complete dataset readable. Java cannot portably replace a non-empty directory atomically, so interruption during
+the final replacement requires rerunning this deterministic export.
 
 One build wrinkle: Arrow keeps its buffers *outside* the Java heap and reaches into `java.nio` internals to do it. Java
 17 and later close that package off by default, so `package.mill` adds
 `--add-opens=java.base/java.nio=ALL-UNNAMED` to `forkArgs` for both `run` and `test`. Without it, every Arrow call
 fails with `InaccessibleObjectException`.
 
+**A result is tied to its inputs.** The Polars container records SHA-256 digests of both inputs in
+`polars_input.sha256` and publishes that manifest last, as the completion marker. Scala checks it before opening
+`polars_revenue.arrow`. It therefore rejects a result left over after the inputs were regenerated with different data
+instead of presenting a plausible but stale comparison. Scala also writes every Arrow input to a sibling temporary file
+and moves it into place only after the writer and its off-heap vectors have closed. This protects the previous file from
+ordinary writer failures; Java does not promise atomic replacement on every filesystem.
+
 ### The Polars side (`docker/aggregate.py`)
+
+Polars has no official JVM API. The intentionally small Python adapter is therefore the native-engine boundary: Scala
+owns data generation, Arrow schemas, Parquet export, independent aggregation, manifest verification, and the final
+equality check; Python owns only the Polars query and its Arrow result.
 
 `pl.scan_ipc(path)` does **not** read the file. It returns a `LazyFrame`: a description of a computation. Only
 `.collect()` runs it, and before it runs Polars optimises the whole description. You can see the result yourself - the
@@ -153,21 +171,21 @@ Everything is run from the **repository root**.
 **1. Write the Arrow and Parquet files and aggregate on the JVM.**
 
 ```bash
-./mill examples.12-polars-arrow-bridge.run
+./mill examples.12-polars-arrow-bridge.run examples/12-polars-arrow-bridge/data 20000
 ```
 
 Expect roughly this, followed by a note that no Polars result exists yet:
 
 ```
-generated 200000 orders -> 499990 order lines
-wrote .../data/order_lines.arrow (37.6 MiB)
+generated 20000 orders -> 49852 order lines
+wrote .../data/order_lines.arrow (3.7 MiB)
 wrote .../data/regions.arrow (0.0 MiB)
-wrote .../data/order_lines_parquet/order_lines_0.parquet (16.4 MiB)
+wrote .../data/order_lines_parquet/order_lines_0.parquet (1.6 MiB)
 
 revenue per country, computed on the JVM:
 country  region  orders  units   revenue
 -------  ------  ------  ------  -----------------
-DE       DACH    38859   198286  9,901,674.75 EUR
+DE       DACH    3939    19610  979,350.40 EUR
 ...
 case classes and arrow vectors agree on all 5 rows.
 ```
@@ -179,7 +197,7 @@ To use a different size, pass the directory and the order count:
 
 ```bash
 DOCKER_UID=$(id -u) DOCKER_GID=$(id -g) \
-  docker compose -f examples/12-polars-arrow-bridge/docker/docker-compose.yml up --abort-on-container-exit
+  docker compose -f examples/12-polars-arrow-bridge/docker/docker-compose.yml run --build --rm polars
 ```
 
 The first run builds the image (a pinned `python:3.12-slim-bookworm` plus `polars==1.44.1`), which takes a minute. The
@@ -193,7 +211,7 @@ copy, and its own timing - then exits.
 **3. Read the Polars answer back from Scala.**
 
 ```bash
-./mill examples.12-polars-arrow-bridge.run
+./mill examples.12-polars-arrow-bridge.run examples/12-polars-arrow-bridge/data 20000
 ```
 
 Now the tail of the output compares the two sides:
@@ -204,6 +222,9 @@ revenue per country, computed by Polars and read back over Arrow:
 arrow vectors and polars agree on all 5 rows.
 polars reported 38.35 ms for the same aggregation
 ```
+
+That comparison is an executable check, not only output: a stale/missing manifest or any differing country aggregate
+makes the Scala process exit non-zero.
 
 **Tests**, which never start a container:
 
@@ -216,6 +237,13 @@ polars reported 38.35 ms for the same aggregation
 for example 12 is 11200-11299 and remains unused.
 
 ## What to try next
+
+- **Interrupt and recover.** Start the Polars step and press Ctrl-C while it is running. The last valid result stays in
+  place, and the input manifest is published last as the completion marker. For unchanged inputs Scala can still read
+  that previous result; for changed inputs it refuses the stale result because the digests no longer match. Run the same
+  Compose command again to replace the result. Parquet conversion is also staged before replacement, but Java cannot
+  portably replace a non-empty directory atomically; interruption during that final replacement requires rerunning the
+  deterministic JVM export.
 
 - **Change the batch size.** `ArrowIpc.DefaultBatchSize` is 4096 rows. Set it to 100 and watch the file grow and the
   read slow down: every batch carries its own metadata and breaks the vectorised inner loop. Set it to 500,000 and the

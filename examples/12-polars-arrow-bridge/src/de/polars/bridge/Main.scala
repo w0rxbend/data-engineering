@@ -63,7 +63,7 @@ object Main {
     println()
     println(RevenueReport.table("revenue per country, computed on the JVM:", columnar.value))
     println()
-    println(RevenueReport.agreement("case classes", objectBased.value, "arrow vectors", columnar.value))
+    println(requireAgreement("case classes", objectBased.value, "arrow vectors", columnar.value))
     println(
       RevenueReport.timings(Seq(objectBased.label -> objectBased.bestMillis, columnar.label -> columnar.bestMillis))
     )
@@ -75,16 +75,27 @@ object Main {
       println(s"no Polars result at ${dataSet.polarsRevenueArrow} yet.")
       println("run the Polars container (see README, \"Run it\") and then run this program again.")
     } else {
+      ExchangeIntegrity.verifyInputManifest(dataSet).fold(message => throw new IllegalStateException(message), identity)
       val fromPolars = ArrowIpc.readRevenue(allocator, dataSet.polarsRevenueArrow)
       val onTheJvm   = RevenueAggregation.fromArrowFile(allocator, dataSet.orderLinesArrow)
       println()
       println(RevenueReport.table("revenue per country, computed by Polars and read back over Arrow:", fromPolars))
       println()
-      println(RevenueReport.agreement("arrow vectors", onTheJvm, "polars", fromPolars))
+      println(requireAgreement("arrow vectors", onTheJvm, "polars", fromPolars))
       readDouble(dataSet.polarsTimingMillis).foreach { millis =>
         println(f"polars reported $millis%.2f ms for the same aggregation (see ${dataSet.polarsTimingMillis})")
       }
     }
+
+  private def requireAgreement(
+      left: String,
+      leftRows: Seq[RevenueByCountry],
+      right: String,
+      rightRows: Seq[RevenueByCountry]
+  ): String =
+    RevenueReport
+      .verifiedAgreement(left, leftRows, right, rightRows)
+      .fold(message => throw new IllegalStateException(message), identity)
 
   private def readDouble(path: Path): Option[Double] =
     Option

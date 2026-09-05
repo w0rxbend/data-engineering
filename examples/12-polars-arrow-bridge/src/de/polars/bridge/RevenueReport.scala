@@ -34,16 +34,44 @@ object RevenueReport {
       right: String,
       rightRows: Seq[RevenueByCountry]
   ): String = {
-    val byCountry  = rightRows.map(row => row.country -> row).toMap
-    val mismatches = leftRows.filterNot(row => byCountry.get(row.country).contains(row))
-    if (mismatches.isEmpty && leftRows.size == rightRows.size) {
+    val leftByCountry  = leftRows.groupBy(_.country)
+    val rightByCountry = rightRows.groupBy(_.country)
+    val mismatches     = invalidCountries(leftByCountry, rightByCountry)
+    if (mismatches.isEmpty) {
       s"$left and $right agree on all ${leftRows.size} rows."
     } else {
-      val details =
-        mismatches.map(row => s"  $left says $row, $right says ${byCountry.getOrElse(row.country, "nothing")}")
+      val details = mismatches.map { country =>
+        s"  $country: $left says ${leftByCountry.getOrElse(country, Nil)}, " +
+          s"$right says ${rightByCountry.getOrElse(country, Nil)}"
+      }
       (s"$left and $right disagree:" +: details).mkString("\n")
     }
   }
+
+  /** Returns the rendered comparison only when the two sides agree, so callers cannot mistake printing for checking. */
+  def verifiedAgreement(
+      left: String,
+      leftRows: Seq[RevenueByCountry],
+      right: String,
+      rightRows: Seq[RevenueByCountry]
+  ): Either[String, String] = {
+    val rendered = agreement(left, leftRows, right, rightRows)
+    if (invalidCountries(leftRows.groupBy(_.country), rightRows.groupBy(_.country)).isEmpty) {
+      Right(rendered)
+    } else {
+      Left(rendered)
+    }
+  }
+
+  private def invalidCountries(
+      left: Map[String, Seq[RevenueByCountry]],
+      right: Map[String, Seq[RevenueByCountry]]
+  ): Seq[String] =
+    (left.keySet ++ right.keySet).toSeq.sorted.filter { country =>
+      val leftRows  = left.getOrElse(country, Nil)
+      val rightRows = right.getOrElse(country, Nil)
+      leftRows.size != 1 || rightRows.size != 1 || leftRows != rightRows
+    }
 
   /** One line per measurement, plus how much faster the fastest one was. */
   def timings(measurements: Seq[(String, Double)]): String = {

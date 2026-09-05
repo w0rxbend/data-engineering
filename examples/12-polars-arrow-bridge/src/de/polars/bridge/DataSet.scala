@@ -23,6 +23,9 @@ final case class DataSet(root: Path) {
   /** The aggregate Polars writes back for the JVM to read. */
   def polarsRevenueArrow: Path = root.resolve("polars_revenue.arrow")
 
+  /** SHA-256 digests of the two Arrow inputs from which Polars produced its result. */
+  def polarsInputManifest: Path = root.resolve("polars_input.sha256")
+
   /** Milliseconds Polars needed for its aggregation, written as a single decimal number. */
   def polarsTimingMillis: Path = root.resolve("polars_timing_millis.txt")
 

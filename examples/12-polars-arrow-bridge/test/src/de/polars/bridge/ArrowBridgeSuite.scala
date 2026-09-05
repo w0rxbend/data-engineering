@@ -4,7 +4,9 @@ import de.common.gen.DataGenerator
 import munit.FunSuite
 import org.apache.arrow.memory.RootAllocator
 
+import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path}
+import scala.util.Using
 
 /**
  * Tests for everything that happens on the JVM side of the bridge.
@@ -72,6 +74,51 @@ final class ArrowBridgeSuite extends FunSuite {
     assertEquals(ArrowIpc.readOrderLines(allocator, target), Nil)
   }
 
+  fixture.test("a failed replacement leaves the previous exchange file intact") { case (allocator, directory) =>
+    val target   = directory.resolve("order_lines.arrow")
+    val original = sampleRows(orderCount = 10)
+    ArrowIpc.writeOrderLines(allocator, original, target)
+
+    intercept[IllegalStateException] {
+      ExchangeIntegrity.replaceFile(target) { temporary =>
+        Files.writeString(temporary, "not an Arrow file")
+        throw new IllegalStateException("simulated writer failure")
+      }
+    }
+
+    assertEquals(ArrowIpc.readOrderLines(allocator, target), original)
+  }
+
+  fixture.test("the Polars manifest detects inputs changed after aggregation") { case (allocator, directory) =>
+    val dataSet = DataSet(directory)
+    ArrowIpc.writeOrderLines(allocator, sampleRows(orderCount = 10), dataSet.orderLinesArrow)
+    ArrowIpc.writeRegions(allocator, RegionRow.all, dataSet.regionsArrow)
+    Files.writeString(
+      dataSet.polarsInputManifest,
+      ExchangeIntegrity.inputManifest(dataSet.orderLinesArrow, dataSet.regionsArrow)
+    )
+    assertEquals(ExchangeIntegrity.verifyInputManifest(dataSet), Right(()))
+
+    ArrowIpc.writeOrderLines(allocator, sampleRows(orderCount = 10), dataSet.orderLinesArrow)
+    assertEquals(ExchangeIntegrity.verifyInputManifest(dataSet), Right(()))
+
+    ArrowIpc.writeOrderLines(allocator, sampleRows(orderCount = 11), dataSet.orderLinesArrow)
+
+    assert(ExchangeIntegrity.verifyInputManifest(dataSet).left.exists(_.contains("different Arrow inputs")))
+  }
+
+  test("Scala implements the manifest contract shared with the Python boundary") {
+    val directory  = Files.createTempDirectory("arrow-bridge-manifest")
+    val orderLines = directory.resolve("order_lines.arrow")
+    val regions    = directory.resolve("regions.arrow")
+    try {
+      Files.writeString(orderLines, "orders\n", StandardCharsets.UTF_8)
+      Files.writeString(regions, "regions\n", StandardCharsets.UTF_8)
+      val expected = Using.resource(scala.io.Source.fromResource("manifest.txt"))(_.mkString)
+      assertEquals(ExchangeIntegrity.inputManifest(orderLines, regions), expected)
+    } finally deleteRecursively(directory)
+  }
+
   fixture.test("the dimension table round-trips") { case (allocator, directory) =>
     val target = directory.resolve("regions.arrow")
 
@@ -133,6 +180,27 @@ final class ArrowBridgeSuite extends FunSuite {
     assertEquals(ParquetExport.parquetFilesIn(parquetDir), produced)
   }
 
+  fixture.test("a failed Parquet conversion preserves the previous complete dataset") { case (allocator, directory) =>
+    val rows         = sampleRows(orderCount = 30)
+    val arrowFile    = directory.resolve("order_lines.arrow")
+    val invalidArrow = directory.resolve("invalid.arrow")
+    val parquetDir   = directory.resolve("parquet")
+    ArrowIpc.writeOrderLines(allocator, rows, arrowFile)
+    val original = ParquetExport
+      .fromArrowIpc(allocator, arrowFile, parquetDir)
+      .map(path => path.getFileName.toString -> Files.readAllBytes(path).toSeq)
+    Files.writeString(invalidArrow, "not an Arrow file")
+
+    intercept[Exception] {
+      ParquetExport.fromArrowIpc(allocator, invalidArrow, parquetDir)
+    }
+
+    val afterFailure = ParquetExport
+      .parquetFilesIn(parquetDir)
+      .map(path => path.getFileName.toString -> Files.readAllBytes(path).toSeq)
+    assertEquals(afterFailure, original)
+  }
+
   allocatorFixture.test("an aggregate file produced by Polars itself is readable from the JVM") { allocator =>
     // `test/resources/polars_revenue.arrow` is a real file written by the container in `docker/`, checked in so that
     // this test can prove cross-language compatibility without starting anything. It matters because Polars encodes
@@ -162,6 +230,24 @@ final class ArrowBridgeSuite extends FunSuite {
 
     assert(message.contains("disagree"), message)
     assert(message.contains("DE"), message)
+  }
+
+  test("verification fails when the native result contains an unexpected country") {
+    val left  = List(RevenueByCountry("DE", "DACH", 2, 6, 5000))
+    val right = left :+ RevenueByCountry("PL", "CEE", 1, 1, 300)
+
+    val verified = RevenueReport.verifiedAgreement("scala", left, "polars", right)
+
+    assert(verified.left.exists(_.contains("PL")))
+  }
+
+  test("verification rejects duplicate country rows even when both sides contain them") {
+    val duplicate = RevenueByCountry("DE", "DACH", 2, 6, 5000)
+
+    val verified =
+      RevenueReport.verifiedAgreement("scala", List(duplicate, duplicate), "polars", List(duplicate, duplicate))
+
+    assert(verified.left.exists(_.contains("DE")))
   }
 
   test("the timing report marks the fastest measurement as one times itself") {
