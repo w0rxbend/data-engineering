@@ -125,8 +125,9 @@ one customer, several small orders seconds apart, every one of them declined.
 **`src/de/kafkastreams/fraud/Main.scala`** — the wiring. Builds the topology, configures the
 application, starts it, and prints a state-store snapshot every ten seconds.
 
-**`src/de/kafkastreams/fraud/SeedProducer.scala`** — a plain Kafka producer that writes the demo
-scenario to the topics in real time, injecting a card-testing burst every twenty rounds.
+**`src/de/kafkastreams/fraud/SeedProducer.scala`** — a plain Kafka producer with two useful modes:
+`once` publishes one deterministic attack and advances stream time so its suppressed result appears
+immediately; a numeric argument produces live traffic and injects a burst every twenty rounds.
 
 ### The tests
 
@@ -139,20 +140,23 @@ One detail that trips up everybody writing such a test the first time: suppressi
 window only when *stream time* moves past its end, and stream time only moves when records actually
 reach the suppression node. The `advanceStreamTime` helper therefore pushes a **declined** payment
 from an unrelated customer far into the future — a `Captured` one would be dropped by the filter
-and would never advance the clock where it matters.
+and would never advance the clock where it matters. `TopologyTestDriver` models one partition, so
+that unrelated key reaches the same task in these tests. The production one-shot scenario cannot
+make that assumption in a three-partition topic and uses the suspect customer key for its advance.
 
 ## Run it
 
 Everything below is run from the repository root. Host ports stay inside the 10200-10299 range
 reserved for this example.
 
-**1. Run the tests. No Docker needed.**
+**1. Run the tests and build the seeder jar. No Docker needed.**
 
 ```bash
 ./mill examples.02-kafka-streams-fraud.test
+./mill examples.02-kafka-streams-fraud.assembly
 ```
 
-Expect 22 passing tests across four suites.
+Expect 26 passing tests across four suites.
 
 **2. Start Kafka and the web UI.**
 
@@ -162,8 +166,15 @@ docker compose -f examples/02-kafka-streams-fraud/docker/docker-compose.yml up -
 
 This starts a single-node Kafka broker in **KRaft mode** (Kafka's own metadata protocol; since
 Kafka 4.0 there is no ZooKeeper any more), creates the four topics, and starts a browser UI. The
-`--wait` flag makes Compose block until every healthcheck passes, so there is nothing to wait for
-manually.
+`--wait` flag covers the long-running health checks, but topic creation is a one-shot job. Verify it
+before starting the detector:
+
+```bash
+docker compose -f examples/02-kafka-streams-fraud/docker/docker-compose.yml ps --all topics
+```
+
+Its state must be `Exited (0)`; a healthy broker alone does not prove the compacted table topic was
+created successfully.
 
 | Service         | Host port | URL / address            |
 | --------------- | --------- | ------------------------ |
@@ -179,42 +190,64 @@ manually.
 It prints `Topology started.` and then, every ten seconds, the contents of the state store — empty
 at first.
 
-**4. In a second terminal, produce traffic.** Mill runs one task at a time — a second `./mill`
+**4. In a second terminal, publish one closed-window scenario.** Mill runs one task at a time — a second `./mill`
 command started while step 3 is still running waits for the workspace lock instead of doing
-anything. Build a jar once and run the seeder from that jar, which does not take the lock:
+anything. Run the seeder from the jar built in step 1, which does not take the lock:
 
 ```bash
-./mill examples.02-kafka-streams-fraud.assembly
 java -cp out/examples/02-kafka-streams-fraud/assembly.dest/out.jar \
-  de.kafkastreams.fraud.SeedProducer 400
+  de.kafkastreams.fraud.SeedProducer once
 ```
 
 (If you would rather not build a jar, stop the detector from step 3, run
-`./mill examples.02-kafka-streams-fraud.runMain de.kafkastreams.fraud.SeedProducer 400`, and start
+`./mill examples.02-kafka-streams-fraud.runMain de.kafkastreams.fraud.SeedProducer once`, and start
 the detector again afterwards — it picks up the traffic from the topic.)
 
-Every twenty rounds it logs `injecting a card-testing burst from cust-probe-01`.
+The command takes the attack timestamp from the current UTC clock and writes five declines for
+`cust-probe-01` at that timestamp. It then writes one later decline for the **same** customer. The
+topology repartitions declines by customer, and Kafka Streams tracks stream time per task, so using
+the same key is what guarantees that the last record reaches the task holding the attack. That lone
+later decline stays below the threshold in its own windows, but advances the task past every hopping
+window containing the attack without a two-minute wall-clock sleep.
 
-**5. Watch the alerts.** Within about two minutes (one window plus its grace period) the first
-terminal starts listing `cust-probe-01` at the top of the state-store snapshot, and an alert
-appears on the `fraud-alerts` topic:
+All orders and payments in `once` also use source partition 0, while retaining unique order-id
+keys. This makes one join task emit the attack before its closing record. With ordinary hash
+partitioning, a faster source task could forward the closing record first and expire part of the
+attack. Live traffic continues to use Kafka's normal key partitioning.
+
+**5. Watch the alerts.** Within a few seconds the first terminal starts listing `cust-probe-01` at
+the top of the state-store snapshot, and two alerts (one per overlapping hopping window) appear on
+the `fraud-alerts` topic:
 
 ```bash
 docker exec de-02-kafka /opt/kafka/bin/kafka-console-consumer.sh \
   --bootstrap-server localhost:9092 --topic fraud-alerts --from-beginning --timeout-ms 15000
 ```
 
-```json
-{"customerId":"cust-probe-01","declinedCount":55,"totalDeclinedCents":10945,
- "windowStart":1788565440000,"windowEnd":1788565560000,"riskTier":"watchlist"}
-```
+Both records have `customerId` `cust-probe-01`, `declinedCount` `5`,
+`totalDeclinedCents` `995`. Their `windowStart` values are one minute
+apart and each `windowEnd` is two minutes after its start; the epoch-millisecond values depend on
+when the command runs.
 
-`riskTier` is `watchlist` rather than `unknown`, which proves the stream-table join found the
-customer in the `customer-risk` table. The same messages are visible in the web UI at
+`riskTier` is `watchlist` once the stream-table join has applied the customer's risk profile.
+On a newly started detector it can be `unknown`: a broker acknowledgement does not guarantee
+that the separate table input has been processed. The same messages are visible in the web UI at
 <http://localhost:10280> under **Topics → fraud-alerts → Messages**.
 
 If Kafka is not on the default address, set `KAFKA_BOOTSTRAP_SERVERS` before running either
 program.
+
+`once` deliberately advances event-time about two minutes and ten seconds beyond its attack. Stream
+time never moves backwards, so running `once` again immediately would put the next wall-clock-based
+attack behind the previous advance and Kafka Streams would correctly discard it as late. To repeat
+the exact five-decline result, wait one complete two-minute window **after** the previous command's
+printed advance time; that also keeps its one closing decline out of the next attack's windows. For
+a completely fresh demonstration, use the cleanup command below and restart the stack and detector;
+removing only Kafka data while retaining the application's local state is not a valid reset.
+
+For a live demonstration instead, run `SeedProducer 400`. It sleeps half a second per round and
+injects a burst every twenty rounds; suppression then releases each result only when later live
+records move stream time beyond that window and its grace period.
 
 ## What to try next
 
@@ -230,7 +263,8 @@ program.
   loses data rather than erroring.
 - **Restart the application** while the producer keeps running. Kafka Streams restores its state
   stores from their changelog topics, so the counts survive the restart. Watch the log lines about
-  restoring state.
+  restoring state. `auto.offset.reset=earliest` applies only when the application id has no committed
+  offsets; an ordinary restart resumes rather than replaying the topic from the beginning.
 - **Start a second instance** in a third terminal. The two instances split the partitions between
   them, and each one can then only answer interactive queries about the customers it owns — the
   moment a distributed streaming application starts needing a way to route queries to the right

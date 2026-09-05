@@ -1,13 +1,16 @@
 package de.kafkastreams.fraud
 
-import java.time.{Duration, Instant}
+import java.time.{Clock, Duration, Instant, ZoneOffset}
 import java.util.Properties
 
 import scala.jdk.CollectionConverters.*
+import scala.util.Using
 
 import de.common.domain.{CustomerId, Money, Order, OrderId, OrderLine, Payment, PaymentStatus, Sku}
 import org.apache.kafka.common.serialization.{Deserializer, Serdes as KafkaSerdes, Serializer}
 import org.apache.kafka.streams.{StreamsConfig, TopologyTestDriver}
+import org.apache.kafka.clients.producer.MockProducer
+import org.apache.kafka.common.serialization.StringSerializer
 
 /**
  * Runs the complete topology inside `TopologyTestDriver`.
@@ -20,6 +23,23 @@ class FraudTopologySuite extends munit.FunSuite {
 
   private val base    = Instant.parse("2024-05-01T10:00:00Z")
   private val suspect = CustomerId("cust-probe-01")
+
+  test("one-shot source records stay ordered in one co-partitioned join task") {
+    val scenario = new OneShotScenarioFactory(Clock.fixed(base, ZoneOffset.UTC), FraudTopology.defaultConfig)
+      .create(suspect, attempts = 5)
+    Using.resource(new MockProducer[String, String](true, null, new StringSerializer, new StringSerializer)) {
+      producer =>
+        SeedProducer.publishOneShotScenario(producer, scenario)
+        val records = producer.history().asScala.toList
+        assertEquals(records.size, 12)
+        assertEquals(records.map(_.partition().intValue()).distinct, List(0))
+        for (topic <- List(FraudTopology.OrdersTopic, FraudTopology.PaymentsTopic)) {
+          val source = records.filter(_.topic() == topic)
+          assertEquals(source.map(_.key()), scenario.records.map(_.sourceKey))
+          assertEquals(source.map(_.timestamp().longValue()), scenario.records.map(_.recordTimestampEpochMillis))
+        }
+    }
+  }
 
   /** Tumbling windows (advance equals size) keep the expectations obvious. */
   private val tumbling = FraudTopology.Config(
@@ -79,11 +99,19 @@ class FraudTopologySuite extends munit.FunSuite {
       paymentsIn.pipeInput(order.id.value, payment, at)
     }
 
+    /** Pushes one of the exact records built by the production one-shot scenario. */
+    def attempt(record: TimestampedAttempt): Unit = {
+      val at = Instant.ofEpochMilli(record.recordTimestampEpochMillis)
+      ordersIn.pipeInput(record.sourceKey, record.attempt.order, at)
+      paymentsIn.pipeInput(record.sourceKey, record.attempt.payment, at)
+    }
+
     /**
      * Suppression only releases a window once stream time has moved past its end, and stream time only moves when
      * records arrive at the suppression node itself. The record therefore has to be a decline, so that it survives the
      * filter and reaches the aggregation; a single decline from an unrelated customer stays far below the threshold and
-     * so cannot produce an alert of its own.
+     * so cannot produce an alert of its own. TopologyTestDriver has one task; the production one-shot scenario uses the
+     * suspect's customer key because a real deployment has three tasks.
      */
     def advanceStreamTime(to: Instant): Unit =
       attempt(CustomerId("cust-clock"), s"order-clock-${to.toEpochMilli}", 100L, PaymentStatus.Declined, to)
@@ -205,6 +233,72 @@ class FraudTopologySuite extends munit.FunSuite {
       }
       rig.advanceStreamTime(base.plus(Duration.ofMinutes(30)))
       assertEquals(rig.alerts.map(_.declinedCount), List(5))
+    }
+  }
+
+  test("the one-shot scenario derives unique source keys and exact timestamps from its clock") {
+    val scenario = new OneShotScenarioFactory(Clock.fixed(base, ZoneOffset.UTC), FraudTopology.defaultConfig)
+      .create(suspect, attempts = 5)
+    val closeAt = base
+      .plus(FraudTopology.defaultConfig.windowSize)
+      .plus(FraudTopology.defaultConfig.grace)
+      .plusMillis(1L)
+
+    assertEquals(scenario.attack.map(_.recordTimestampEpochMillis), List.fill(5)(base.toEpochMilli))
+    assertEquals(scenario.attack.map(_.attempt.order.placedAtEpochMillis), List.fill(5)(base.toEpochMilli))
+    assertEquals(scenario.streamTimeAdvance.recordTimestampEpochMillis, closeAt.toEpochMilli)
+    assertEquals(scenario.streamTimeAdvance.attempt.order.placedAtEpochMillis, closeAt.toEpochMilli)
+    assertEquals(scenario.records.map(_.sourceKey).distinct.size, 6)
+    assertEquals(scenario.records.map(_.customerKey).distinct, List(suspect.value))
+  }
+
+  test("a clean repeat starts one window after the preceding stream-time advance") {
+    val first = new OneShotScenarioFactory(Clock.fixed(base, ZoneOffset.UTC), FraudTopology.defaultConfig)
+      .create(suspect, attempts = 5)
+    val previousStreamTime = first.streamTimeAdvance.recordTimestampEpochMillis
+
+    val tooSoon =
+      new OneShotScenarioFactory(Clock.fixed(base.plusSeconds(10L), ZoneOffset.UTC), FraudTopology.defaultConfig)
+        .create(suspect, attempts = 5)
+    val cleanRepeatAt = previousStreamTime + FraudTopology.defaultConfig.windowSize.toMillis + 1L
+    val eligible      = new OneShotScenarioFactory(
+      Clock.fixed(Instant.ofEpochMilli(cleanRepeatAt), ZoneOffset.UTC),
+      FraudTopology.defaultConfig
+    ).create(suspect, attempts = 5)
+
+    assert(tooSoon.attack.head.recordTimestampEpochMillis < previousStreamTime)
+    assert(eligible.attack.head.recordTimestampEpochMillis - previousStreamTime > 120000L)
+  }
+
+  test("the production one-shot scenario closes both five-decline hopping windows") {
+    val scenario = new OneShotScenarioFactory(Clock.fixed(base, ZoneOffset.UTC), FraudTopology.defaultConfig)
+      .create(suspect, attempts = 5)
+
+    withRig(FraudTopology.defaultConfig) { rig =>
+      rig.risk(CustomerRisk(suspect, "watchlist"))
+      scenario.records.foreach(rig.attempt)
+
+      val alerts = rig.alerts.sortBy(_.windowStartEpochMillis)
+      assertEquals(alerts.size, 2)
+      assert(alerts.forall(_.customerId == suspect))
+      assert(alerts.forall(_.declinedCount == 5))
+      assert(alerts.forall(_.totalDeclinedCents == 995L))
+      assert(alerts.forall(_.riskTier == "watchlist"))
+      assertEquals(alerts.map(_.windowStartEpochMillis).sliding(2).map(pair => pair(1) - pair(0)).toList, List(60000L))
+      assert(alerts.forall(alert => alert.windowEndEpochMillis - alert.windowStartEpochMillis == 120000L))
+
+      val repeatAt = scenario.streamTimeAdvance.recordTimestampEpochMillis +
+        FraudTopology.defaultConfig.windowSize.toMillis + 1L
+      val repeated = new OneShotScenarioFactory(
+        Clock.fixed(Instant.ofEpochMilli(repeatAt), ZoneOffset.UTC),
+        FraudTopology.defaultConfig
+      ).create(suspect, attempts = 5)
+      repeated.records.foreach(rig.attempt)
+
+      val repeatedAlerts = rig.alerts
+      assertEquals(repeatedAlerts.size, 2)
+      assert(repeatedAlerts.forall(_.declinedCount == 5))
+      assert(repeatedAlerts.forall(_.totalDeclinedCents == 995L))
     }
   }
 }

@@ -128,6 +128,16 @@ protocol, which replaced Apache ZooKeeper, so one container is a whole cluster),
 creates the `orders` and `payments` topics with three partitions each, and starts
 a web user interface (UI).
 
+`--wait` covers the long-running services, but topic creation is a one-shot job.
+Verify it separately before seeding:
+
+```bash
+docker compose -f examples/01-kafka-clients-exactly-once/docker/docker-compose.yml \
+  ps --all topic-setup
+```
+
+Its state must be `Exited (0)`; any other exit code means the topics are not ready.
+
 - Kafka, for clients on your machine: `localhost:10192`
 - Kafka UI, in a browser: <http://localhost:10180>
 
