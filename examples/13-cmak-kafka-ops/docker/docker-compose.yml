@@ -1,0 +1,191 @@
+# Local stack for example 13: operating an Apache Kafka cluster with CMAK
+# (Cluster Manager for Apache Kafka) and with the Kafka AdminClient API.
+#
+# Six containers:
+#   zookeeper     - the coordination service the brokers and CMAK both read
+#   kafka-1/2/3   - a three-broker Kafka cluster, so replication is real
+#   cmak          - the web console
+#   cmak-register - a one-shot container that tells CMAK about the cluster, then exits
+#
+# This is the only example in the repository that runs ZooKeeper-based Kafka. CMAK
+# reads cluster metadata straight out of ZooKeeper and has no support for KRaft, the
+# built-in metadata mode that replaced ZooKeeper in Kafka 4. Confluent Platform 7.9
+# (Kafka 3.9) is the last line whose brokers still accept a ZooKeeper connection.
+#
+# Every published host port is inside this example's reserved range 11300-11399, so
+# this stack runs side by side with every other example in the repository.
+name: de-13-cmak-ops
+
+services:
+  # ZooKeeper stores which brokers exist, which topics exist and where each partition
+  # lives. Both the brokers and CMAK talk to it.
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.9.2
+    container_name: de-13-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      # ZooKeeper's "four letter word" diagnostic commands are refused unless listed
+      # here. `ruok` ("are you ok") is the one the healthcheck below asks.
+      ZOOKEEPER_4LW_COMMANDS_WHITELIST: "ruok,srvr,stat"
+    ports:
+      # Client port, in case you want to browse the tree with zkCli: localhost:11381
+      - "11381:2181"
+    healthcheck:
+      # A ZooKeeper that answers `ls /` is serving requests. The image ships no
+      # netcat, so its own shell client is used rather than a raw socket probe.
+      test: ["CMD-SHELL", "zookeeper-shell localhost:2181 ls / 2>/dev/null | grep -q zookeeper"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 10s
+    networks: [de13]
+
+  # Three brokers with identical settings apart from their identifier and ports.
+  #
+  # Each broker publishes two listeners. INTERNAL (port 9092) carries the addresses the
+  # containers use to reach each other; EXTERNAL (port 19092) advertises a localhost
+  # address so that the Scala example, running on the host, can connect too. A Kafka
+  # client always reconnects to the address the broker advertises, which is why one
+  # address is not enough.
+  kafka-1:
+    image: confluentinc/cp-kafka:7.9.2
+    container_name: de-13-kafka-1
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "11301:19092"
+    environment: &kafka-common
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:19092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-1:9092,EXTERNAL://localhost:11301
+      # Kafka keeps consumer offsets in an internal topic. Replicating it three times
+      # means a broker failure does not lose the pipeline's reading position - which is
+      # the whole point of the failure experiment in the README.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+      KAFKA_MIN_INSYNC_REPLICAS: 2
+      # Topics are created explicitly by the Scala example, with a chosen partition
+      # count; letting a stray client create them by accident would defeat that.
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      # A stopped broker should look stopped quickly, so the under-replication
+      # experiment does not need a coffee break.
+      KAFKA_ZOOKEEPER_SESSION_TIMEOUT_MS: 6000
+      # Java Management Extensions: the metrics interface CMAK polls for message rates.
+      KAFKA_JMX_PORT: 9999
+      KAFKA_JMX_HOSTNAME: kafka-1
+    healthcheck: &kafka-healthcheck
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 20s
+    volumes:
+      - kafka-1-data:/var/lib/kafka/data
+    networks: [de13]
+
+  kafka-2:
+    image: confluentinc/cp-kafka:7.9.2
+    container_name: de-13-kafka-2
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "11302:19092"
+    environment:
+      <<: *kafka-common
+      KAFKA_BROKER_ID: 2
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-2:9092,EXTERNAL://localhost:11302
+      KAFKA_JMX_HOSTNAME: kafka-2
+    healthcheck: *kafka-healthcheck
+    volumes:
+      - kafka-2-data:/var/lib/kafka/data
+    networks: [de13]
+
+  kafka-3:
+    image: confluentinc/cp-kafka:7.9.2
+    container_name: de-13-kafka-3
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "11303:19092"
+    environment:
+      <<: *kafka-common
+      KAFKA_BROKER_ID: 3
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-3:9092,EXTERNAL://localhost:11303
+      KAFKA_JMX_HOSTNAME: kafka-3
+    healthcheck: *kafka-healthcheck
+    volumes:
+      - kafka-3-data:/var/lib/kafka/data
+    networks: [de13]
+
+  # CMAK, the Cluster Manager for Apache Kafka (originally Kafka Manager, from Yahoo).
+  # It is itself a Play Framework application written in Scala.
+  #
+  # The Yahoo project publishes no official image, so this is the widely used community
+  # build of CMAK 3.0.0.5. Its own configuration lives in ZooKeeper under /kafka-manager,
+  # which is why it needs ZK_HOSTS before it will start.
+  cmak:
+    image: hlebalbau/kafka-manager:3.0.0.5
+    container_name: de-13-cmak
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-3:
+        condition: service_healthy
+    environment:
+      ZK_HOSTS: "zookeeper:2181"
+      # Play signs its session cookie with this secret. Any non-empty value works for a
+      # local example; a deployment on a network would use a generated one.
+      APPLICATION_SECRET: "de-13-local-example-secret"
+    command: ["-Dcmak.zkhosts=zookeeper:2181", "-Dhttp.port=9000"]
+    ports:
+      # Web console: http://localhost:11380
+      - "11380:9000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9000/api/health || curl -sf http://localhost:9000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    networks: [de13]
+
+  # Registers the cluster in CMAK through the same form the web page posts, then exits.
+  # Without this you would have to click "Add Cluster" by hand before the console shows
+  # anything. `--fail-with-body` is not used: CMAK answers a duplicate registration with
+  # a normal page, so a re-run of `docker compose up` stays harmless.
+  cmak-register:
+    image: curlimages/curl:8.11.1
+    container_name: de-13-cmak-register
+    depends_on:
+      cmak:
+        condition: service_healthy
+    command:
+      - -sS
+      - -X
+      - POST
+      - -d
+      - >-
+        name=de-13-orders&zkHosts=zookeeper:2181&kafkaVersion=2.4.0&jmxEnabled=true&jmxUser=&jmxPass=&jmxSsl=false&tuning.brokerViewUpdatePeriodSeconds=30&tuning.clusterManagerThreadPoolSize=2&tuning.clusterManagerThreadPoolQueueSize=100&tuning.kafkaCommandThreadPoolSize=2&tuning.kafkaCommandThreadPoolQueueSize=100&tuning.logkafkaCommandThreadPoolSize=2&tuning.logkafkaCommandThreadPoolQueueSize=100&tuning.logkafkaUpdatePeriodSeconds=30&tuning.partitionOffsetCacheTimeoutSecs=5&tuning.brokerViewThreadPoolSize=2&tuning.brokerViewThreadPoolQueueSize=1000&tuning.offsetCacheThreadPoolSize=2&tuning.offsetCacheThreadPoolQueueSize=1000&tuning.kafkaAdminClientThreadPoolSize=2&tuning.kafkaAdminClientThreadPoolQueueSize=1000&securityProtocol=PLAINTEXT&pollConsumers=true&filterConsumers=false&activeOffsetCacheEnabled=true&displaySizeEnabled=false&
+      - -o
+      - /dev/null
+      - http://cmak:9000/clusters
+    networks: [de13]
+
+networks:
+  de13:
+    name: de-13-cmak-ops
+
+volumes:
+  kafka-1-data:
+  kafka-2-data:
+  kafka-3-data:

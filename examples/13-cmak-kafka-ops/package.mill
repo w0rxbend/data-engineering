@@ -1,0 +1,39 @@
+package build.examples.`13-cmak-kafka-ops`
+
+import mill.*
+import mill.scalalib.*
+import build.*
+
+/**
+ * Example 13: day-two operations on an Apache Kafka cluster, from a web console and from code.
+ *
+ * The web console is CMAK (Cluster Manager for Apache Kafka), which runs in Docker. The Scala half of the example uses
+ * the `AdminClient` interface that ships inside `kafka-clients`: the same API the `kafka-topics.sh` and
+ * `kafka-consumer-groups.sh` shell scripts are built on. No extra library is needed for administration, so the only
+ * dependencies here are the Kafka client itself and a logging backend.
+ */
+object `package` extends BaseScalaModule {
+  def scalaVersion = Versions.scala3
+
+  def moduleDeps = Seq(build.common(Versions.scala3))
+
+  def mvnDeps = Seq(
+    // Kafka 3.9 rather than 4.x: this example runs a ZooKeeper-based cluster (CMAK
+    // cannot read a KRaft cluster), and 3.9 is the last release line whose brokers
+    // still support ZooKeeper. Keeping the client on the same line as the broker
+    // avoids any protocol-version surprises.
+    mvn"org.apache.kafka:kafka-clients:${ExampleVersions.kafka}",
+    mvn"org.slf4j:slf4j-simple:${ExampleVersions.slf4j}"
+  )
+
+  def mainClass = Some("de.kafka.ops.Main")
+
+  /** `ScalafmtModule` is mixed in explicitly so that `reformat` also covers the test sources. */
+  object test extends ScalaTests with MunitTests with mill.scalalib.scalafmt.ScalafmtModule {}
+}
+
+/** Library versions pinned by this example only, so the root build file stays untouched. */
+object ExampleVersions {
+  val kafka = "3.9.1"
+  val slf4j = "2.0.17"
+}
