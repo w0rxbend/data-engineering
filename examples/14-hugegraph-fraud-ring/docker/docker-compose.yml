@@ -1,0 +1,83 @@
+# Example 14 - Apache HugeGraph, a distributed graph database, plus its web console.
+#
+# Two services:
+#
+#   hugegraph   the graph database. Stores the vertices and edges, runs the Gremlin queries
+#               and the built-in traversers, and serves the HTTP interface the Scala program
+#               talks to.
+#   hubble      HugeGraph Hubble, the official web console. Optional: it draws the graph, so
+#               a fraud ring can be looked at rather than only counted.
+#
+# Host ports stay inside the 11400-11499 range that belongs to example 14, so this stack runs
+# side by side with every other example in the repository. Inside the network the services keep
+# their standard ports (8080 and 8088).
+name: de-14-hugegraph
+
+services:
+  hugegraph:
+    image: hugegraph/hugegraph:1.5.0
+    container_name: de-14-hugegraph
+    environment:
+      # The image starts in authentication-free mode unless PASSWORD is set. That is the right
+      # choice for a local example: every request in this folder would otherwise need a token,
+      # which would obscure the API this example is about.
+      JAVA_OPTS: "-XX:+UnlockExperimentalVMOptions -XX:+UseContainerSupport -XX:MaxRAMPercentage=50"
+    ports:
+      # The whole HTTP interface - schema, batch loading, /gremlin and the traversers - is on
+      # this one port: http://localhost:11400
+      - "11400:8080"
+    volumes:
+      # The default storage backend is RocksDB, an embedded key/value store that keeps its files
+      # on disk. Putting them on a named volume means a restart of the container keeps the graph;
+      # `down -v` removes the volume and gives a clean database.
+      - hugegraph-data:/hugegraph-server/rocksdb-data
+    networks:
+      - de-14
+    healthcheck:
+      # `/versions` is the cheapest endpoint that only answers once the server has finished
+      # initialising its store, which makes it a better readiness probe than a bare TCP check.
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/versions"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 30s
+
+  hubble:
+    image: hugegraph/hubble:1.5.0
+    container_name: de-14-hubble
+    depends_on:
+      hugegraph:
+        condition: service_healthy
+    environment:
+      # Hubble 1.5.0 bundles Spring Boot 2.1 with an old Micrometer, whose "how busy is this
+      # machine" metrics read operating-system counters that are not exposed the same way inside
+      # a container on a current Linux kernel. Instantiating them throws a NullPointerException
+      # and the whole web application refuses to start. Switching those metric collectors off is
+      # what makes the console usable; nothing in the console itself depends on them.
+      # SPRING_APPLICATION_JSON is the standard Spring Boot way to pass configuration as an
+      # environment variable, and it is the only lever here, because the image's start script
+      # builds its Java command line without consulting any other variable.
+      SPRING_APPLICATION_JSON: >-
+        {"management":{"metrics":{"binders":{"processor":{"enabled":false},
+        "files":{"enabled":false},"uptime":{"enabled":false},"jvm":{"enabled":false}},
+        "export":{"simple":{"enabled":false}}}}}
+    ports:
+      # The web console: http://localhost:11401
+      - "11401:8088"
+    networks:
+      - de-14
+    healthcheck:
+      # The Hubble image ships no HTTP client, so readiness is "the port accepts a connection".
+      # Bash can open a TCP socket through its /dev/tcp pseudo device, which saves installing one.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8088"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 20s
+
+networks:
+  de-14:
+    name: de-14-hugegraph
+
+volumes:
+  hugegraph-data:

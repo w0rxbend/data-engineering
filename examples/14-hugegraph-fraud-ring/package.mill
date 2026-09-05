@@ -1,0 +1,43 @@
+package build.examples.`14-hugegraph-fraud-ring`
+
+import mill.*
+import mill.scalalib.*
+import build.*
+
+/**
+ * Example 14 - Apache HugeGraph, a distributed graph database, used to find fraud rings.
+ *
+ * HugeGraph has no official Scala client, and it does not need one: everything the server can do is reachable over a
+ * plain HTTP (HyperText Transfer Protocol) interface that speaks JSON. This module therefore pulls in exactly two
+ * libraries.
+ *
+ *   - sttp client4, an HTTP client. It is used in *direct style*, meaning a request returns its response as an ordinary
+ *     value instead of wrapping it in a `Future` or an effect type. There is no concurrency in this example, so there
+ *     is nothing for an effect type to buy.
+ *   - uPickle/uJSON, for building request bodies and reading response bodies.
+ *
+ * Everything else - the graph schema, the vertices and edges derived from the shared shop domain, the Gremlin queries,
+ * and an in-memory reference implementation of the ring detection - is plain Scala with no dependencies, which is what
+ * makes the test suite runnable without Docker.
+ */
+object `package` extends BaseScalaModule {
+  def scalaVersion = Versions.scala3
+
+  def moduleDeps = Seq(build.common(Versions.scala3))
+
+  def mvnDeps = Seq(
+    mvn"com.softwaremill.sttp.client4::core:${ExampleVersions.sttp}",
+    mvn"com.lihaoyi::upickle:${ExampleVersions.upickle}"
+  )
+
+  def mainClass = Some("de.hugegraph.fraud.Main")
+
+  /** `ScalafmtModule` is mixed in explicitly so that `reformat` also covers the test sources. */
+  object test extends ScalaTests with MunitTests with mill.scalalib.scalafmt.ScalafmtModule {}
+}
+
+/** Library versions pinned by this example only, so the root build file stays untouched. */
+object ExampleVersions {
+  val sttp    = "4.0.26"
+  val upickle = "4.4.3"
+}
