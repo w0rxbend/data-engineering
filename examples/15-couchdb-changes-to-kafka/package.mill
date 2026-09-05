@@ -1,0 +1,46 @@
+package build.examples.`15-couchdb-changes-to-kafka`
+
+import mill.*
+import mill.scalalib.*
+import build.*
+
+/**
+ * Example 15 - change data capture (CDC) from Apache CouchDB into Apache Kafka.
+ *
+ * "Change data capture" means: instead of asking a database "what does the catalogue look like now?" over and over, a
+ * service follows the database's own ordered feed of changes and republishes every one of them. CouchDB is a good
+ * teaching subject for this because that feed (`_changes`) is a first-class, documented HTTP endpoint rather than a
+ * vendor add-on.
+ *
+ * The module is deliberately split into a pure core (feed parsing, checkpoint arithmetic, change-to-record mapping) and
+ * a thin input/output shell (sttp for HTTP, the Apache Kafka producer, Ox for the long-running loop and graceful
+ * shutdown), so every rule worth testing is testable without Docker.
+ */
+object `package` extends BaseScalaModule {
+  def scalaVersion = Versions.scala3
+
+  /**
+   * Ox builds its structured concurrency on Java virtual threads, which arrived in Java 21, so this module needs a
+   * newer JVM than the repository default of 17. The emitted bytecode still targets 17 (`-release 17` is inherited from
+   * `BaseScalaModule`), so the classes stay usable everywhere else in the repository.
+   */
+  def jvmVersion = "temurin:21.0.8"
+
+  def moduleDeps = Seq(build.common(Versions.scala3))
+
+  def mvnDeps = Seq(
+    // sttp client4 in "direct style": plain blocking calls, no Future or IO wrapper around them.
+    mvn"com.softwaremill.sttp.client4::core:4.0.26",
+    // upickle parses the JSON that CouchDB speaks; the shared `common` module can only write JSON, not read it.
+    mvn"com.lihaoyi::upickle:4.4.3",
+    // Ox: structured concurrency, the supervised scope and the interruption that makes Ctrl+C shut down cleanly.
+    mvn"com.softwaremill.ox::core:1.0.6",
+    // The plain Apache Kafka producer; nothing hides the tombstone (null value) that a compacted topic needs.
+    mvn"org.apache.kafka:kafka-clients:4.3.1",
+    mvn"org.slf4j:slf4j-simple:2.0.19"
+  )
+
+  def mainClass = Some("de.couchdb.cdc.Main")
+
+  object test extends ScalaTests with MunitTests
+}

@@ -1,0 +1,8 @@
+{"seq":"1-g1AAAAB5eJzLYWBg","id":"SKU-COFFEE","changes":[{"rev":"1-9e4a"}],"doc":{"_id":"SKU-COFFEE","_rev":"1-9e4a","type":"product","name":"Single origin coffee beans, 1 kg","category":"beans","price":{"cents":2450,"currency":"EUR"},"availability":"InStock"}}
+{"seq":"2-g1AAAAB5eJzLYWBg","id":"_design/catalogue","changes":[{"rev":"1-3c11"}],"doc":{"_id":"_design/catalogue","_rev":"1-3c11","language":"javascript","views":{"by_category":{"map":"function (doc) { }","reduce":"_count"}}}}
+
+{"seq":"3-g1AAAAB5eJzLYWBg","id":"SKU-MUG","changes":[{"rev":"2-77b0"}],"doc":{"_id":"SKU-MUG","_rev":"2-77b0","type":"product","name":"Stoneware mug, 300 ml","category":"accessories","price":{"cents":1490,"currency":"EUR"},"availability":"OutOfStock"}}
+{"seq":"4-g1AAAAB5eJzLYWBg","id":"SKU-KETTLE","changes":[{"rev":"3-11aa"},{"rev":"3-bb22"}],"doc":{"_id":"SKU-KETTLE","_rev":"3-11aa","type":"product","name":"Gooseneck kettle, 1 l","category":"hardware","price":{"cents":7900,"currency":"EUR"},"availability":"InStock"}}
+{"seq":"5-g1AAAAB5eJzLYWBg","id":"SKU-FILTER","changes":[{"rev":"2-0f5d"}],"deleted":true,"doc":{"_id":"SKU-FILTER","_rev":"2-0f5d","_deleted":true}}
+{"seq":"6-g1AAAAB5eJzLYWBg","id":"shopping-cart-3417","changes":[{"rev":"1-4d21"}],"doc":{"_id":"shopping-cart-3417","_rev":"1-4d21","type":"cart","customerId":"cust-0042"}}
+{"last_seq":"6-g1AAAAB5eJzLYWBg","pending":0}

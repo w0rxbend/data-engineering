@@ -1,0 +1,44 @@
+{
+  "docs": [
+    {
+      "_id": "SKU-COFFEE",
+      "type": "product",
+      "name": "Single origin coffee beans, 1 kg",
+      "category": "beans",
+      "price": { "cents": 2450, "currency": "EUR" },
+      "availability": "InStock"
+    },
+    {
+      "_id": "SKU-GRINDER",
+      "type": "product",
+      "name": "Flat burr grinder",
+      "category": "hardware",
+      "price": { "cents": 18900, "currency": "EUR" },
+      "availability": "InStock"
+    },
+    {
+      "_id": "SKU-KETTLE",
+      "type": "product",
+      "name": "Gooseneck kettle, 1 l",
+      "category": "hardware",
+      "price": { "cents": 7900, "currency": "EUR" },
+      "availability": "InStock"
+    },
+    {
+      "_id": "SKU-FILTER",
+      "type": "product",
+      "name": "Paper filters, pack of 100",
+      "category": "consumables",
+      "price": { "cents": 690, "currency": "EUR" },
+      "availability": "InStock"
+    },
+    {
+      "_id": "SKU-MUG",
+      "type": "product",
+      "name": "Stoneware mug, 300 ml",
+      "category": "accessories",
+      "price": { "cents": 1490, "currency": "EUR" },
+      "availability": "OutOfStock"
+    }
+  ]
+}
