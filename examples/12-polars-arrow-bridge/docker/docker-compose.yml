@@ -1,0 +1,29 @@
+# The Polars half of example 12.
+#
+# It is a single one-shot container: it starts, reads the Arrow files the Scala side wrote into ../data, prints its
+# query plan and its results, writes the answer back into the same directory, and exits. There is no server here, so
+# the stack publishes no host ports at all - nothing in it can collide with the other examples.
+name: de-12-polars
+
+services:
+  polars:
+    build:
+      # The build context is this `docker` folder, so the image contains the aggregation script and nothing else.
+      context: .
+      dockerfile: Dockerfile
+    image: de-12-polars:1.44.1
+    container_name: de-12-polars
+    # The exchange directory, mounted read-write because Polars writes its answer back into it. `../data` is created by
+    # `./mill examples.12-polars-arrow-bridge.run`.
+    volumes:
+      - ../data:/data:rw
+    environment:
+      DATA_DIR: /data
+    # Without this the container writes its output as root and you would need `sudo` to delete `../data` afterwards.
+    # 1000:1000 is the first user account on a typical Linux desktop; override it with
+    # `DOCKER_UID=$(id -u) DOCKER_GID=$(id -g) docker compose ... up` if yours differs.
+    user: "${DOCKER_UID:-1000}:${DOCKER_GID:-1000}"
+    # A batch job, not a service: never restart it, and let `docker compose run` surface its exit code.
+    restart: "no"
+    # `docker compose up` would otherwise attach it to a default network it does not need.
+    network_mode: none

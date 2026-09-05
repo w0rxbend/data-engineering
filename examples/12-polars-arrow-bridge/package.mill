@@ -1,0 +1,42 @@
+package build.examples.`12-polars-arrow-bridge`
+
+import mill.*
+import mill.scalalib.*
+import build.*
+
+/**
+ * Example 12 - handing data from Scala to Polars over Apache Arrow.
+ *
+ * Three Arrow artifacts are on the classpath:
+ *   - `arrow-vector` holds the columnar in-memory format and the Inter-Process Communication (IPC) file reader and
+ *     writer. IPC is the name Arrow gives to its on-disk/on-wire framing of a columnar batch.
+ *   - `arrow-memory-netty` is the off-heap memory backend. Arrow keeps its columns outside the Java heap so another
+ *     process can read the very same bytes without a copy.
+ *   - `arrow-dataset` bundles a native (Rust/C++) library that can write Apache Parquet files straight from Arrow
+ *     batches, which spares this module the whole Hadoop stack that the classic Java Parquet writer drags in.
+ *
+ * The Arrow version is pinned here rather than in the root build file because this is the only module that uses it.
+ *
+ * Arrow's off-heap memory backend reaches into `java.nio` internals, which the Java module system closes off by default
+ * from Java 17 onwards. `--add-opens` re-opens exactly that one package for the run and the tests; without it every
+ * Arrow call fails with an `InaccessibleObjectException`.
+ */
+object `package` extends BaseScalaModule {
+  def scalaVersion = Versions.scala3
+
+  def moduleDeps = Seq(build.common(Versions.scala3))
+
+  def mvnDeps = Seq(
+    mvn"org.apache.arrow:arrow-vector:19.0.0",
+    mvn"org.apache.arrow:arrow-memory-netty:19.0.0",
+    mvn"org.apache.arrow:arrow-dataset:19.0.0"
+  )
+
+  def forkArgs = Seq("--add-opens=java.base/java.nio=ALL-UNNAMED")
+
+  def mainClass = Some("de.polars.bridge.Main")
+
+  object test extends ScalaTests with MunitTests {
+    def forkArgs = Seq("--add-opens=java.base/java.nio=ALL-UNNAMED")
+  }
+}
