@@ -28,7 +28,6 @@ final case class Settings(
     bootstrapServers: BootstrapServers,
     topic: TopicName,
     feedTimeoutMillis: Int,
-    heartbeatMillis: Int,
     checkpointEveryNChanges: Int
 )
 
@@ -39,9 +38,10 @@ object Settings {
    *   how long CouchDB keeps one continuous `_changes` response open when nothing is happening. The connector simply
    *   reconnects afterwards, and because reconnecting is where it notices a shutdown request, this value also bounds
    *   how long Ctrl+C takes to take effect.
-   * @param heartbeatMillis
-   *   how often CouchDB writes a blank line into an idle response, which stops proxies and firewalls from dropping a
-   *   connection they believe to be dead.
+   *
+   * The request deliberately does not also set `heartbeat`: CouchDB documents that heartbeat overrides timeout and
+   * holds a continuous feed open indefinitely. This local connector needs the bounded reconnect point more than a proxy
+   * keepalive.
    */
   val defaults: Settings = Settings(
     couchDbUrl = CouchDbUrl("http://localhost:11598"),
@@ -50,7 +50,6 @@ object Settings {
     bootstrapServers = BootstrapServers("localhost:11592"),
     topic = TopicName("catalogue.products"),
     feedTimeoutMillis = 30000,
-    heartbeatMillis = 10000,
     checkpointEveryNChanges = 5
   )
 

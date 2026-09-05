@@ -15,10 +15,10 @@ import scala.jdk.CollectionConverters.*
  * Publishes mapped changes to Apache Kafka.
  *
  * Two settings do the work here. `enable.idempotence=true` makes the producer de-duplicate its own retries, so a
- * network hiccup cannot turn one send into two records. `acks=all` makes it wait until every in-sync replica has the
- * record. Together with waiting for the send to complete before the checkpoint moves, that is what "at-least-once with
- * idempotent keys" means in practice: a record is never lost, may be sent twice after a crash, and a duplicate is
- * indistinguishable from the original because both carry the same key and the same body.
+ * network hiccup cannot turn one send into two records within this producer session. `acks=all` makes it wait until
+ * every in-sync replica has the record. Waiting for the send before moving the checkpoint gives at-least-once delivery:
+ * a crash can replay a record in a new producer session. Stable keys make a compacted latest-value view converge, but
+ * raw streaming consumers can observe both copies and may de-duplicate by the sequence in the payload.
  */
 final class KafkaChangeSink private (producer: KafkaProducer[String, String], topic: TopicName) extends ChangeSink {
 
@@ -49,9 +49,9 @@ object KafkaChangeSink {
   /**
    * Creates the destination topic with log compaction enabled, if it is not there yet.
    *
-   * A compacted topic keeps the latest record per key for ever, which turns the topic into a replayable copy of the
-   * catalogue rather than a window of recent changes. Compaction is also what gives tombstones their meaning: once a
-   * tombstone has been retained for `delete.retention.ms`, the key disappears from the compacted log.
+   * A compacted topic retains a latest record for each live key, which turns the topic into a replayable copy of the
+   * catalogue rather than a window of recent changes. Compaction is also what gives tombstones their meaning: after a
+   * tombstone's retention window, both it and the deleted key may disappear from the compacted log.
    */
   def createTopicIfAbsent(settings: Settings, partitions: Int, replication: Short)(using Ox): Unit = {
     val properties = new Properties()

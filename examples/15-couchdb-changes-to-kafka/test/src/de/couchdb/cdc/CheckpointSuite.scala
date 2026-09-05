@@ -25,6 +25,7 @@ class CheckpointSuite extends munit.FunSuite {
     val json   = StoredCheckpoint.toJson(stored)
     assertEquals(json("_id").str, "_local/catalogue-connector-checkpoint")
     assertEquals(json("_rev").str, "4-cc")
+    assertEquals(json("changesHandled").num.toLong, 12L)
     assertEquals(StoredCheckpoint.fromJson(json), Some(stored))
   }
 
@@ -32,7 +33,46 @@ class CheckpointSuite extends munit.FunSuite {
     assert(!StoredCheckpoint.toJson(StoredCheckpoint.fresh).value.contains("_rev"))
   }
 
-  test("an unreadable checkpoint document is simply absent, so the connector replays from the beginning") {
+  test("the checkpoint decoder rejects a document without a bookmark") {
     assertEquals(StoredCheckpoint.fromJson(ujson.Obj("changesPublished" -> ujson.Num(3))), None)
+  }
+
+  test("an existing malformed checkpoint stops immediately with repair instructions") {
+    val writes = scala.collection.mutable.Buffer.empty[ujson.Obj]
+    val client = new CheckpointDocumentClient {
+      def fetch(id: DocId): Option[ujson.Value]                        = Some(ujson.Obj("_rev" -> "4-bad"))
+      def saveAtExpectedRevision(id: DocId, body: ujson.Obj): Revision = {
+        writes += body
+        Revision("5-unexpected")
+      }
+    }
+
+    val failure = intercept[CouchDbFailure](new CouchDbCheckpointStore(client).load())
+
+    assert(failure.getMessage.contains(StoredCheckpoint.documentId.value), failure.getMessage)
+    assert(failure.getMessage.contains("delete it to replay from the beginning"), failure.getMessage)
+    assertEquals(writes.toList, Nil)
+  }
+
+  test("an existing checkpoint without its revision is rejected before it can enter a conflict loop") {
+    val client = new CheckpointDocumentClient {
+      def fetch(id: DocId): Option[ujson.Value]                        = Some(ujson.Obj("since" -> "9-abc"))
+      def saveAtExpectedRevision(id: DocId, body: ujson.Obj): Revision = Revision("unused")
+    }
+
+    val failure = intercept[CouchDbFailure](new CouchDbCheckpointStore(client).load())
+    assert(failure.getMessage.contains("current '_rev'"), failure.getMessage)
+  }
+
+  test("a checkpoint written with the old counter name remains readable") {
+    val legacy = ujson.Obj(
+      "since"            -> ujson.Str("9-abc"),
+      "changesPublished" -> ujson.Num(12),
+      "_rev"             -> ujson.Str("4-cc")
+    )
+    assertEquals(
+      StoredCheckpoint.fromJson(legacy),
+      Some(StoredCheckpoint(Checkpoint(SequenceId("9-abc"), 12L), Some(Revision("4-cc"))))
+    )
   }
 }

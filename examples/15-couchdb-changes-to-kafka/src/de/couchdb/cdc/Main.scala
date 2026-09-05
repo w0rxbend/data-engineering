@@ -9,7 +9,7 @@ enum Command {
   /** Create the database, install the design document and write the starting catalogue. */
   case Seed
 
-  /** Follow the `_changes` feed and publish every change to Apache Kafka, until Ctrl+C. */
+  /** Follow the `_changes` feed and publish each applicable change row to Apache Kafka, until Ctrl+C. */
   case Follow
 
   /** Change one product's availability, producing one new revision. */
@@ -28,7 +28,7 @@ object Command {
     """usage: seed | follow | in-stock <sku> | out-of-stock <sku> | remove <sku> | report [category]
       |
       |  seed                 create the database, the design document and the starting catalogue
-      |  follow               publish every change to the Kafka topic until Ctrl+C
+      |  follow               publish applicable change rows to Kafka until Ctrl+C
       |  in-stock <sku>       mark a product as available again
       |  out-of-stock <sku>   mark a product as unavailable
       |  remove <sku>         delete a product, which becomes a Kafka tombstone

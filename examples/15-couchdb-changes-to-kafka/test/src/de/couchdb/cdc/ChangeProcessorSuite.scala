@@ -55,7 +55,7 @@ class ChangeProcessorSuite extends munit.FunSuite {
 
   test("the checkpoint is written every n changes and once more when the feed closes") {
     val (_, checkpoints, _, _) = replay(checkpointEvery = 5)
-    assertEquals(checkpoints.saved.map(_.changesPublished).toList, List(5L, 6L))
+    assertEquals(checkpoints.saved.map(_.changesHandled).toList, List(5L, 6L))
   }
 
   test("a checkpoint write returns the revision needed by the next write") {
@@ -84,4 +84,61 @@ class ChangeProcessorSuite extends munit.FunSuite {
     processor.flush(Progress.startingAt(StoredCheckpoint.fresh))
     assertEquals(checkpoints.saved.toList, Nil)
   }
+
+  test("publication happens before the checkpoint is made durable") {
+    val events = mutable.Buffer.empty[String]
+    val sink   = new ChangeSink {
+      def publish(record: CatalogueRecord): Unit = events += s"publish:${record.key}"
+    }
+    val store = new CheckpointStore {
+      def load(): StoredCheckpoint                         = StoredCheckpoint.fresh
+      def save(stored: StoredCheckpoint): StoredCheckpoint = {
+        events += s"checkpoint:${stored.checkpoint.since.value}"
+        stored.copy(revision = Some(Revision("1-test")))
+      }
+    }
+    val processor = new ChangeProcessor(sink, store, new SilentLog, checkpointEveryNChanges = 1)
+
+    processor.handleLine(Progress.startingAt(store.load()), firstProductLine)
+
+    assertEquals(events.toList, List("publish:SKU-COFFEE", "checkpoint:1-g1AAAAB5eJzLYWBg"))
+  }
+
+  test("a failed Kafka publication never advances or persists the checkpoint") {
+    val checkpoints = new RecordingCheckpointStore
+    val sink        = new ChangeSink {
+      def publish(record: CatalogueRecord): Unit = throw new RuntimeException(s"broker rejected ${record.key}")
+    }
+    val processor = new ChangeProcessor(sink, checkpoints, new SilentLog, checkpointEveryNChanges = 1)
+    val start     = Progress.startingAt(checkpoints.load())
+
+    intercept[RuntimeException](processor.handleLine(start, firstProductLine))
+
+    assertEquals(start.stored.checkpoint.since, SequenceId.beginning)
+    assertEquals(checkpoints.saved.toList, Nil)
+  }
+
+  test("a failed checkpoint write leaves the change eligible for replay") {
+    val firstSink    = new RecordingSink
+    val failingStore = new CheckpointStore {
+      def load(): StoredCheckpoint                         = StoredCheckpoint.fresh
+      def save(stored: StoredCheckpoint): StoredCheckpoint = throw new RuntimeException("checkpoint conflict")
+    }
+    val firstProcessor = new ChangeProcessor(firstSink, failingStore, new SilentLog, checkpointEveryNChanges = 1)
+
+    intercept[RuntimeException](
+      firstProcessor.handleLine(Progress.startingAt(failingStore.load()), firstProductLine)
+    )
+
+    val replaySink      = new RecordingSink
+    val replayStore     = new RecordingCheckpointStore
+    val replayProcessor = new ChangeProcessor(replaySink, replayStore, new SilentLog, checkpointEveryNChanges = 1)
+    replayProcessor.handleLine(Progress.startingAt(replayStore.load()), firstProductLine)
+
+    assertEquals(firstSink.records.map(_.key).toList, List("SKU-COFFEE"))
+    assertEquals(replaySink.records.map(_.key).toList, List("SKU-COFFEE"))
+  }
+
+  private def firstProductLine: String =
+    RecordedFeed.payload.linesIterator.find(_.contains("SKU-COFFEE")).getOrElse(fail("recorded product is missing"))
 }

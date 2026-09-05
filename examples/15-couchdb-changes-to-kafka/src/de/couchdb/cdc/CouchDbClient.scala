@@ -22,7 +22,7 @@ final class CouchDbFailure(message: String) extends RuntimeException(message)
  * Create it with `CouchDbClient.open`, which registers the backend with the enclosing Ox scope so its connection pool
  * is closed when the scope ends.
  */
-final class CouchDbClient private (settings: Settings, backend: SyncBackend) {
+final class CouchDbClient private (settings: Settings, backend: SyncBackend) extends CheckpointDocumentClient {
 
   /** Creates the database, treating "it already exists" as success so the command can be re-run. */
   def createDatabaseIfAbsent(): Unit = {
@@ -48,13 +48,25 @@ final class CouchDbClient private (settings: Settings, backend: SyncBackend) {
    */
   def save(id: DocId, body: ujson.Obj): Revision = {
     withCurrentRevision(id, body)
+    put(id, body)
+  }
+
+  /**
+   * Writes exactly the revision carried by `body`, without first replacing it with the latest revision from CouchDB.
+   *
+   * Checkpoints use this operation so a second connector instance cannot silently move a bookmark backwards. If its
+   * loaded revision is stale, CouchDB answers 409 and the losing instance stops for an operator to resolve.
+   */
+  def saveAtExpectedRevision(id: DocId, body: ujson.Obj): Revision = put(id, body)
+
+  private def put(id: DocId, body: ujson.Obj): Revision = {
     val response = authenticated(basicRequest.put(databaseUri(id)))
       .body(ujson.write(body))
       .contentType("application/json")
       .response(asStringAlways)
       .send(backend)
     if (!response.code.isSuccess)
-      throw new CouchDbFailure(s"could not write ${id.value}: ${response.body}")
+      throw new CouchDbFailure(s"could not write ${id.value}: HTTP ${response.code}: ${response.body}")
     revisionOf(response.body).getOrElse(throw new CouchDbFailure(s"write of ${id.value} returned no revision"))
   }
 
@@ -81,10 +93,10 @@ final class CouchDbClient private (settings: Settings, backend: SyncBackend) {
   /**
    * Opens one continuous `_changes` response and hands every line to `onLine` until CouchDB closes it.
    *
-   * Why the response ends at all: `timeout` tells CouchDB to close an idle feed after that many milliseconds. A feed
-   * that is never closed would leave this method blocked inside a socket read, and a blocking read of a classic
-   * `java.io` stream does not end when Ox interrupts the fork - shutdown would hang. Bounding the response instead
-   * gives the caller a regular, predictable moment to notice that it should stop.
+   * Why the response ends at all: `timeout` tells CouchDB to close an idle feed after that many milliseconds. The
+   * request deliberately omits `heartbeat`, because CouchDB documents that heartbeat overrides timeout and holds the
+   * response open indefinitely. On Java 21 the socket read is interruptible; the timeout also provides a regular
+   * reconnect and checkpoint boundary.
    *
    * `style=all_docs` asks CouchDB to list every leaf revision, which is what makes a conflicted document visible;
    * `include_docs=true` ships the document body with the change so no second request per change is needed.
@@ -95,17 +107,18 @@ final class CouchDbClient private (settings: Settings, backend: SyncBackend) {
       .addParam("since", since.value)
       .addParam("include_docs", "true")
       .addParam("style", "all_docs")
-      .addParam("heartbeat", settings.heartbeatMillis.toString)
       .addParam("timeout", settings.feedTimeoutMillis.toString)
 
-    authenticated(basicRequest.get(uri))
+    val response = authenticated(basicRequest.get(uri))
       .readTimeout(Duration.Inf)
       .response(asInputStreamAlways { stream =>
         val reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))
         Iterator.continually(reader.readLine()).takeWhile(_ != null).foreach(onLine)
       })
       .send(backend)
-      .body
+    if (!response.code.isSuccess) {
+      throw new CouchDbFailure(s"changes feed failed with HTTP ${response.code}")
+    }
   }
 
   private def postJson(uri: Uri, body: ujson.Obj): ujson.Value = {

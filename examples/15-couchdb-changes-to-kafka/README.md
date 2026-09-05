@@ -1,8 +1,8 @@
 # 15 - Apache CouchDB change data capture into Apache Kafka
 
-This example follows a database's own feed of changes and republishes every one of them onto a message
-broker. The database is **Apache CouchDB**, a document database that stores JSON documents and keeps a
-durable, ordered record of every write to them. The broker is **Apache Kafka**. The technique has a name:
+This example follows a database's own feed of changes and republishes applicable rows onto a message
+broker. The database is **Apache CouchDB**, a document database that stores JSON documents and exposes an
+ordered feed of the latest changes applied to them. The broker is **Apache Kafka**. The technique has a name:
 **change data capture**, usually shortened to CDC - instead of repeatedly asking a database "what does the
 data look like now?", a service reads the database's log of changes and turns each one into an event.
 
@@ -27,8 +27,8 @@ deleted.
 The streaming examples elsewhere in this repository work with *orders*, and an order line only carries a
 SKU. To turn `SKU-KETTLE` into "Gooseneck kettle, 79.00 EUR", those jobs need the catalogue as a Kafka
 topic they can join against. This example is the connector that gets it there: it follows the catalogue's
-change feed and publishes every change to `catalogue.products`, keyed by SKU, on a **compacted** topic - a
-topic on which Kafka keeps the latest record per key for ever, so a consumer starting tomorrow can replay
+change feed and publishes each change row it receives to `catalogue.products`, keyed by SKU, on a **compacted** topic - a
+topic on which Kafka retains a latest record for each live key, so a consumer starting tomorrow can replay
 the topic and rebuild the whole catalogue.
 
 ## How it works
@@ -48,10 +48,15 @@ conflict is a state to handle, not an error that was hidden from you. Asking for
 `style=all_docs` makes conflicts visible, because CouchDB then lists every leaf revision of the document
 rather than only the winner.
 
-**The `_changes` feed.** `GET /<database>/_changes?feed=continuous` returns an HTTP response that does not
+**The [`_changes` feed](https://docs.couchdb.org/en/stable/api/database/changes.html).**
+`GET /<database>/_changes?feed=continuous` returns an HTTP response that does not
 end: CouchDB writes one JSON object per change, each on its own line, and keeps writing as new changes
 happen. Every entry carries a `seq` - an opaque bookmark - and handing that bookmark back as `since` on the
 next connection resumes exactly where you stopped.
+
+This is a change-notification feed, not an immutable audit log. CouchDB guarantees the latest change for a
+document, but may coalesce intermediate revisions before a client observes them. The connector therefore maintains a
+replayable latest-value catalogue; it does not claim to preserve every historical edit.
 
 **Deletions.** Deleting a document does not erase it. CouchDB keeps a stub carrying the identifier, a new
 revision, and `_deleted: true`. That stub is what appears in the feed, and it maps one-to-one onto Kafka's
@@ -86,16 +91,27 @@ state of its own: delete its container and it resumes where it left off.
 
 **Publish first, checkpoint afterwards.** The record reaches Kafka before the bookmark moves, and the
 bookmark is written only every few changes. A crash in between therefore replays a handful of changes. That
-is **at-least-once** delivery, and it is safe here because the key is the document identifier: a replayed
-change produces the same record for the same key, so a consumer of the compacted topic cannot tell that it
-happened. The opposite order - checkpoint first - would silently lose changes instead.
+is **at-least-once** delivery. The producer's `enable.idempotence=true` removes retries made by that one
+producer session; it does not de-duplicate a replay after process restart. A replay writes the same key and sequence,
+so a latest-value consumer eventually reaches the same state after compaction, while a streaming consumer can observe
+both records and should de-duplicate by `seq` when duplicates matter. The opposite order - checkpoint first - would
+silently lose changes instead.
 
 **Why the "endless" feed still ends.** The connector asks CouchDB to close an idle feed after 30 seconds
-(`timeout=30000`) and to send a blank heartbeat line every 10 seconds (`heartbeat=10000`), then reconnects
-from the bookmark. The heartbeat keeps proxies from dropping a connection they think is dead. The timeout
-exists because a blocking read on a classic Java stream does *not* end when Ox interrupts the thread: a feed
-that never closed would leave shutdown hanging for ever. Bounding each connection gives the loop a regular,
-predictable moment to notice that it has been asked to stop.
+(`timeout=30000`) and then reconnects from the bookmark. It deliberately does not also request heartbeats:
+CouchDB documents that `heartbeat` overrides `timeout` and holds the connection open indefinitely. Java 21 can
+interrupt the socket read on Ctrl+C; the timeout is also a regular reconnect/recovery boundary. A deployment behind a
+proxy may choose heartbeats instead, but then it must own cancellation of the indefinite connection explicitly.
+
+**One active connector owns the checkpoint.** The `_local` document revision loaded at startup is sent back unchanged
+on every checkpoint write. A second connector starting from the same revision receives CouchDB's `409 Conflict`
+instead of silently overwriting newer progress or moving the bookmark backwards. This example does not implement
+leader election: run one `follow` process per checkpoint document.
+
+An existing checkpoint must contain both a string `since` bookmark and CouchDB's current `_rev`. If it is malformed,
+`follow` stops immediately and tells the operator to repair it or delete it. Deleting it deliberately replays from the
+beginning. Silently treating the document as absent would discard its revision, making every attempted repair a `409`
+and every restart repeat the same already-published changes.
 
 **Two ways to read the catalogue back.** The `report` command runs both. A **Mango query** is a declarative
 JSON selector, close in spirit to a SQL `WHERE` clause, written the moment a question comes up. A **design
@@ -111,7 +127,7 @@ example 15.
 **1. Start CouchDB, Kafka and the Kafka web interface.**
 
 ```bash
-docker compose -f examples/15-couchdb-changes-to-kafka/docker/docker-compose.yml up -d
+docker compose -f examples/15-couchdb-changes-to-kafka/docker/docker-compose.yml up -d --wait
 ```
 
 Compose waits for CouchDB to be healthy, runs a one-shot init container that creates the system databases
@@ -135,7 +151,9 @@ stored SKU-GRINDER as revision 2-95a932e69ccd35223a38cc35735de279
 
 The generation number is `2` rather than `1` because the init container already wrote generation 1.
 
-**3. Start the connector.** It runs until you press Ctrl+C.
+**3. Start the connector.** It runs until you press Ctrl+C. A normally timed-out feed connection flushes pending
+progress before reconnecting. An abrupt interruption may skip that final remote checkpoint write; on restart those
+already-acknowledged Kafka records are replayed, which is the intended at-least-once trade-off.
 
 ```bash
 ./mill examples.15-couchdb-changes-to-kafka.run follow
@@ -198,9 +216,12 @@ mapping against a recorded feed payload, so no container has to be running:
 
 ## What to try next
 
-- **See at-least-once delivery happen.** Stop the connector with Ctrl+C a moment after a change is
+- **See at-least-once delivery happen.** Stop the connector abruptly a moment after a change is
   published but before the checkpoint is written (it is written every five changes), then start it again.
-  The last few changes are republished, and because the key is the SKU the compacted topic is unchanged.
+  The last few changes are republished. A raw consumer can see both records; after compaction, a latest-value view by
+  SKU converges to the same catalogue.
+- **Exercise checkpoint ownership.** Start two `follow` processes from the same checkpoint. Once both try to persist,
+  one wins and the other fails with `409 Conflict`; there is no automatic failover or lease in this local example.
 - **Watch a checkpoint.** Open
   <http://localhost:11598/catalogue/_local/catalogue-connector-checkpoint> in a browser and refresh it while
   the connector runs. Delete the document and restart the connector: it replays the whole history from
@@ -212,8 +233,9 @@ mapping against a recorded feed payload, so no container has to be running:
   `"conflicted": true` on the published record.
 - **Change the checkpoint interval.** `Settings.defaults.checkpointEveryNChanges` is 5. Set it to 1 and the
   bookmark never falls behind, at the cost of one extra CouchDB write per change.
-- **Watch compaction remove a tombstone.** The broker in this stack is configured to compact aggressively.
-  Delete a product, then consume the topic from the beginning a few minutes later and see the key disappear.
+- **Watch compaction remove a tombstone.** Delete a product, then inspect the log over time. Kafka retains the
+  tombstone for at least `delete.retention.ms` before it may remove both the tombstone and older values for that key;
+  compaction is asynchronous, so this is not an immediate or exact-time guarantee.
 
 ## Clean up
 

@@ -8,14 +8,14 @@ object ConsoleLog extends ConnectorLog {
 }
 
 /**
- * The long-running connector: follow CouchDB's `_changes` feed, publish every change to Apache Kafka, remember where it
- * got to.
+ * The long-running connector: follow CouchDB's `_changes` feed, publish every applicable row to Apache Kafka, and
+ * remember where it got to.
  *
  * The shape is deliberately simple. One CouchDB response is one "connection"; the response ends when CouchDB's feed
- * timeout expires, and the loop opens the next one starting from the bookmark reached so far. Ox's structured
- * concurrency handles shutdown: on Ctrl+C the fork running this loop is interrupted, the loop notices between two
- * connections, the final checkpoint is written, and everything registered with `useCloseableInScope` - the HTTP backend
- * and the Kafka producer - is closed in reverse order.
+ * timeout expires, and the loop opens the next one starting from the bookmark reached so far. A normally completed
+ * connection is flushed before reconnecting. On Ctrl+C, Ox interrupts the blocking read and closes everything
+ * registered with `useCloseableInScope` in reverse order. Interruption does not promise a final remote checkpoint
+ * write; any acknowledged progress since the last stored bookmark is deliberately replayed on restart.
  */
 object ConnectorService {
 

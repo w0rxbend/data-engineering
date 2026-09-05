@@ -91,8 +91,9 @@ final class ChangeProcessor(
   /**
    * Moves the bookmark past a change that has already been handled, and writes it back every so often.
    *
-   * The order matters: the record is published *before* the checkpoint moves. A crash in between replays the change,
-   * which is harmless because the record carries the document identifier as its key. The other order would lose it.
+   * The order matters: the record is published *before* the checkpoint moves. A crash in between replays the change.
+   * Stable keys make the compacted latest-value view converge, but raw consumers can observe both records and may
+   * de-duplicate by sequence. The other order would lose the change.
    */
   private def checkpointAfter(progress: Progress, row: ChangeRow): Progress = {
     val advanced = progress.copy(
