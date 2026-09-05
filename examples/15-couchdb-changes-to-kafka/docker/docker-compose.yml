@@ -94,6 +94,8 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+      couchdb-init:
+        condition: service_completed_successfully
     ports:
       # Browse the topic, its records and their keys at http://localhost:11580
       - "11580:8080"

@@ -43,6 +43,8 @@ services:
   # too, but having it exist beforehand means the first upload needs no extra permission
   # and the console shows the bucket even before anything has been written.
   minio-init:
+    # Explicit batch setup: `docker compose run --rm minio-init` returns its exit code.
+    profiles: [setup]
     image: minio/mc:RELEASE.2025-04-16T18-13-26Z
     container_name: de-11-minio-init
     depends_on:

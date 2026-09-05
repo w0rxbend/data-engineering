@@ -164,6 +164,8 @@ services:
   # anything. `--fail-with-body` is not used: CMAK answers a duplicate registration with
   # a normal page, so a re-run of `docker compose up` stays harmless.
   cmak-register:
+    # Registration is a batch operation, run explicitly after CMAK is healthy.
+    profiles: [setup]
     image: curlimages/curl:8.11.1
     container_name: de-13-cmak-register
     depends_on:

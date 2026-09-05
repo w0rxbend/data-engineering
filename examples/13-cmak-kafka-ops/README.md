@@ -99,10 +99,12 @@ minutes.
 
 ```bash
 docker compose -f examples/13-cmak-kafka-ops/docker/docker-compose.yml up -d --wait
+docker compose -f examples/13-cmak-kafka-ops/docker/docker-compose.yml run --rm cmak-register
 ```
 
 `--wait` returns only once every healthcheck passes, so there is nothing to wait for by hand. A one-shot
-`cmak-register` container then posts the cluster into CMAK and exits with status 0; that is expected, not a failure.
+`cmak-register` command then posts the cluster into CMAK and exits. It is an explicit batch
+operation in the `setup` profile, so a completed registration cannot make `up --wait` fail.
 
 Open the console at **<http://localhost:11380>**. The cluster is already registered as `de-13-orders`; click it to see
 brokers, topics and consumer groups. The other host ports are:

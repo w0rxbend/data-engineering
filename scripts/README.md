@@ -18,6 +18,11 @@ scripts/run-example.sh reset 09                   # delete this stack's volumes
 The `module` value is the directory name under `examples/` (for example
 `02-kafka-streams-fraud`) or the two-digit example number (`02`).
 
+`up` also runs explicit batch setup for examples 11 and 13 after their services
+are healthy. For example 12, follow its README's generate → Polars → verify
+sequence; it has no long-running service. `run` forwards arguments to the Mill
+program, while `config`, `status`, and `list` inspect the local examples.
+
 ## `mill-docker.sh`
 
 Run the same Mill tasks in a container, without installing a host JDK:

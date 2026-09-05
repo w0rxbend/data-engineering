@@ -16,7 +16,7 @@ class ExampleRunnerTest(unittest.TestCase):
         (self.root / "scripts").mkdir()
         shutil.copy(Path(__file__).with_name("run-example.sh"), self.root / "scripts")
         shutil.copy(Path(__file__).with_name("mill-docker.sh"), self.root / "scripts")
-        for name in ("01-kafka-demo", "04-connect-demo", "12-polars-demo"):
+        for name in ("01-kafka-demo", "04-connect-demo", "11-parquet-demo", "12-polars-demo", "13-cmak-demo"):
             directory = self.root / "examples" / name / "docker"
             directory.mkdir(parents=True)
             (directory / "docker-compose.yml").write_text("services: {}\n")
@@ -62,6 +62,14 @@ class ExampleRunnerTest(unittest.TestCase):
     def test_batch_job_is_not_started_with_service_readiness(self):
         self.assertNotEqual(self.run_cli("up", "12").returncode, 0)
         self.assertEqual(self.commands(), [])
+
+    def test_minio_setup_runs_as_a_batch_after_readiness(self):
+        self.assertEqual(self.run_cli("up", "11").returncode, 0)
+        self.assertEqual(self.commands()[-3:], ["run", "--rm", "minio-init"])
+
+    def test_cmak_registration_runs_as_a_batch_after_readiness(self):
+        self.assertEqual(self.run_cli("up", "13").returncode, 0)
+        self.assertEqual(self.commands()[-3:], ["run", "--rm", "cmak-register"])
 
     def test_module_path_cannot_escape_examples(self):
         self.assertNotEqual(self.run_cli("reset", "../scripts").returncode, 0)

@@ -110,6 +110,10 @@ case "${ACTION}" in
     fi
     echo "Starting ${MODULE} stack..."
     docker compose -f "${COMPOSE_FILE}" up -d --wait --wait-timeout 300
+    case "$MODULE" in
+      11-*) docker compose -f "$COMPOSE_FILE" run --rm minio-init ;;
+      13-*) docker compose -f "$COMPOSE_FILE" run --rm cmak-register ;;
+    esac
     ;;
   down)
     echo "Stopping ${MODULE} stack..."

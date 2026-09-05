@@ -247,6 +247,7 @@ To also exercise the object-storage half, start the one container and re-run wit
 
 ```bash
 docker compose -f examples/11-parquet-arrow-toolkit/docker/docker-compose.yml up -d --wait
+docker compose -f examples/11-parquet-arrow-toolkit/docker/docker-compose.yml run --rm minio-init
 UPLOAD_TO_OBJECT_STORE=true ./mill examples.11-parquet-arrow-toolkit.run
 ```
 
