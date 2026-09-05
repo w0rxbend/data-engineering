@@ -45,5 +45,7 @@ trait BaseJavaModule extends JavaModule {
 
 /** Test module wired to MUnit, the default test framework of this repository. */
 trait MunitTests extends TestModule.Munit {
-  def mvnDeps = Seq(mvn"org.scalameta::munit:${Versions.munit}")
+  // `munitVersion` rather than a `mvnDeps` entry: Mill adds the MUnit dependency itself from this
+  // version, and a `mvnDeps` here would clash with the `mvnDeps` a module declares for its own tests.
+  def munitVersion = Versions.munit
 }
