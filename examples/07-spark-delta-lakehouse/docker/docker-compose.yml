@@ -1,0 +1,119 @@
+# Local stack for example 07: Apache Spark + Delta Lake on S3-compatible storage.
+#
+# Two things are running here:
+#   * MinIO, an object store that speaks the Amazon S3 application programming
+#     interface, standing in for the cloud storage a real lakehouse lives on;
+#   * a small Apache Spark cluster (one master, one worker) so the very same job
+#     can be submitted to a cluster instead of running inside the Mill process.
+#
+# Every published host port is inside this example's reserved range 10700-10799,
+# so this stack can run next to every other example in the repository.
+name: de-07-spark-delta
+
+services:
+  # The object store. `server /data` serves the files under /data over the S3
+  # protocol; `--console-address` puts the web user interface on its own port.
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    container_name: de-07-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      # S3 application programming interface: s3a://... resolves here
+      - "10700:9000"
+      # MinIO console: http://localhost:10701 (log in with minioadmin/minioadmin)
+      - "10701:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 10s
+    networks: [de07]
+
+  # A one-shot container that creates the warehouse bucket and then exits.
+  # Everything that depends on the bucket waits for this to finish successfully.
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    container_name: de-07-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin &&
+      mc mb --ignore-existing local/lakehouse &&
+      echo 'bucket local/lakehouse is ready'
+      "
+    networks: [de07]
+
+  # The Spark master: the process that hands work out to workers.
+  #
+  # Note for the spark-submit command in the README: this image runs as a user
+  # with no home directory, so `--conf spark.jars.ivy=/tmp/.ivy2` is needed to
+  # give the resolver behind `--packages` somewhere writable to download into. It is started
+  # through spark-class rather than the sbin scripts because those daemonise
+  # themselves, and a container needs its main process to stay in the foreground.
+  spark-master:
+    image: apache/spark:4.0.1
+    container_name: de-07-spark-master
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+    command: >
+      /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+      --host spark-master --port 7077 --webui-port 8080
+    environment:
+      SPARK_NO_DAEMONIZE: "true"
+    ports:
+      # Cluster address used by spark-submit: spark://localhost:10707
+      - "10707:7077"
+      # Spark master web user interface: http://localhost:10780
+      - "10780:8080"
+    volumes:
+      # The compiled example is mounted read-only so spark-submit can find it.
+      - ../../..:/workspace:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080 > /dev/null"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 15s
+    networks: [de07]
+
+  # One worker, given two cores and two gigabytes so a laptop stays usable.
+  spark-worker:
+    image: apache/spark:4.0.1
+    container_name: de-07-spark-worker
+    depends_on:
+      spark-master:
+        condition: service_healthy
+    command: >
+      /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker
+      spark://spark-master:7077 --cores 2 --memory 2g --webui-port 8081
+    environment:
+      SPARK_NO_DAEMONIZE: "true"
+    ports:
+      # Spark worker web user interface: http://localhost:10781
+      - "10781:8081"
+    volumes:
+      # The worker runs the job's code, so it needs the same jars as the master.
+      - ../../..:/workspace:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8081 > /dev/null"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 15s
+    networks: [de07]
+
+networks:
+  de07:
+    name: de-07-spark-delta
+
+volumes:
+  minio-data:

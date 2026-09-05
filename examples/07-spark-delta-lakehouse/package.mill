@@ -1,0 +1,72 @@
+package build.examples.`07-spark-delta-lakehouse`
+
+import mill.*
+import mill.scalalib.*
+import build.*
+
+/**
+ * Example 07: a batch "lakehouse" built with Apache Spark and Delta Lake, laid out as the medallion architecture
+ * (bronze -> silver -> gold) on top of S3-compatible object storage.
+ *
+ * Scala 2.13 is not a stylistic choice. Apache Spark 4 is published for Scala 2.13 only, and the Delta Lake connector
+ * follows the same Scala version, so the whole example is pinned to it.
+ */
+/** Versions pinned by this example only, so the root build stays untouched. */
+object ExampleVersions {
+
+  /** Apache Spark: the distributed data processing engine this example runs on. */
+  val spark = "4.0.1"
+
+  /**
+   * Delta Lake: a storage format that adds a transaction log on top of Apache Parquet files. The connector version and
+   * the Spark version are tied together, Delta Lake 4.0.x is the release built for Spark 4.0.x.
+   */
+  val delta = "4.0.0"
+}
+
+/**
+ * Apache Spark reaches into internals of the Java platform (memory management, non-blocking input/output buffers) that
+ * Java 17 keeps closed by default. Without these `--add-opens` flags the very first Spark job fails with an
+ * `InaccessibleObjectException`. A real cluster sets the same flags in its launch scripts; here both `run` and `test`
+ * need them, so they live in one place.
+ */
+object SparkJvmArgs {
+  val all: Seq[String] = Seq(
+    "--add-opens=java.base/java.lang=ALL-UNNAMED",
+    "--add-opens=java.base/java.lang.invoke=ALL-UNNAMED",
+    "--add-opens=java.base/java.io=ALL-UNNAMED",
+    "--add-opens=java.base/java.net=ALL-UNNAMED",
+    "--add-opens=java.base/java.nio=ALL-UNNAMED",
+    "--add-opens=java.base/java.util=ALL-UNNAMED",
+    "--add-opens=java.base/java.util.concurrent=ALL-UNNAMED",
+    "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
+    "--add-opens=java.base/sun.util.calendar=ALL-UNNAMED",
+    "--add-opens=java.base/sun.security.action=ALL-UNNAMED",
+    "-Djava.security.manager=allow"
+  )
+}
+
+object `package` extends BaseScalaModule {
+
+  def scalaVersion = Versions.scala213
+
+  def moduleDeps = Seq(build.common(Versions.scala213))
+
+  def mvnDeps = Seq(
+    mvn"org.apache.spark::spark-sql:${ExampleVersions.spark}",
+    mvn"io.delta::delta-spark:${ExampleVersions.delta}"
+  )
+
+  def forkArgs = SparkJvmArgs.all
+
+  def mainClass = Some("de.spark.lakehouse.job.Main")
+
+  object test extends ScalaTests with MunitTests with mill.scalalib.scalafmt.ScalafmtModule {
+
+    /** The tests start a real Apache Spark session in local mode, so they need the same open packages. */
+    def forkArgs = SparkJvmArgs.all
+
+    /** One Spark session per test suite is enough; running suites in parallel would start several. */
+    def testParallelism = false
+  }
+}
