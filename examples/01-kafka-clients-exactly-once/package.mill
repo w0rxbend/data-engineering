@@ -1,0 +1,45 @@
+package build.examples.`01-kafka-clients-exactly-once`
+
+import mill.*
+import mill.scalalib.*
+import build.*
+
+/**
+ * Example 01 - exactly-once payment settlement on top of the plain Apache Kafka Java client.
+ *
+ * The example deliberately uses the low-level `KafkaConsumer` / `KafkaProducer` classes rather than a higher-level
+ * wrapper, because the whole point is to see the transaction API (`initTransactions`, `beginTransaction`,
+ * `sendOffsetsToTransaction`, `commitTransaction`, `abortTransaction`) with nothing hiding it. Ox supplies structured
+ * concurrency and graceful shutdown around that loop.
+ */
+object `package` extends BaseScalaModule {
+  def scalaVersion = Versions.scala3
+
+  /**
+   * Ox builds its structured concurrency on Java virtual threads, which arrived in Java 21. The repository-wide default
+   * of Java 17 is therefore raised here for this module only. The bytecode is still emitted with `-release 17`
+   * (inherited from `BaseScalaModule`), so the classes stay compatible with the rest of the repository; only the JVM
+   * that runs them has to be newer.
+   */
+  def jvmVersion = "temurin:21.0.8"
+
+  def moduleDeps = Seq(build.common(Versions.scala3))
+
+  def mvnDeps = Seq(
+    mvn"org.apache.kafka:kafka-clients:4.3.1",
+    mvn"com.softwaremill.ox::core:1.0.6",
+    mvn"com.lihaoyi::upickle:4.4.3",
+    mvn"org.slf4j:slf4j-simple:2.0.19"
+  )
+
+  def mainClass = Some("de.kafka.eos.Main")
+
+  object test extends ScalaTests with MunitTests {
+
+    /**
+     * Both `ScalaTests` and `MunitTests` define `mvnDeps`, so Scala asks which one wins. The answer is MUnit's, which
+     * contributes the test framework itself.
+     */
+    override def mvnDeps = super[MunitTests].mvnDeps()
+  }
+}
