@@ -1,0 +1,93 @@
+package build.examples.`08-spark-streaming-kafka-delta`
+
+import mill.*
+import mill.scalalib.*
+import build.*
+
+/**
+ * Example 08: Apache Spark Structured Streaming reads Order events from Apache Kafka, appends them to a Delta Lake
+ * table and maintains a five-minute revenue-per-window aggregate.
+ *
+ * Scala 2.13 is not a stylistic choice: Apache Spark 3.5 publishes its artifacts for Scala 2.12 and 2.13 only, and 2.13
+ * is the newer of the two.
+ */
+/** Versions pinned by this example only, so the root build stays untouched. */
+object ExampleVersions {
+  val spark = "3.5.9"
+
+  /** Delta Lake 3.3.x is the release line built against Apache Spark 3.5.x. */
+  val delta = "3.3.3"
+
+  /**
+   * Apache Hadoop version that Apache Spark 3.5 bundles. The `hadoop-aws` module that talks to S3-compatible storage
+   * must match it exactly, otherwise Hadoop rejects the mixed classpath at startup.
+   */
+  val hadoop = "3.3.4"
+
+  val awsSdk = "1.12.262"
+
+  val kafkaClients = "3.9.0"
+}
+
+/**
+ * Apache Spark reflects into Java internals (its own memory manager reads private fields of `java.nio` and
+ * `java.lang`). Java 17 hides those by default, so every JVM that runs Spark has to be told to open them again. These
+ * flags are the standard set published in the Spark documentation.
+ */
+object SparkJvm {
+  val openModules: Seq[String] = Seq(
+    "java.base/java.lang",
+    "java.base/java.lang.invoke",
+    "java.base/java.lang.reflect",
+    "java.base/java.io",
+    "java.base/java.net",
+    "java.base/java.nio",
+    "java.base/java.util",
+    "java.base/java.util.concurrent",
+    "java.base/java.util.concurrent.atomic",
+    "java.base/sun.nio.ch",
+    "java.base/sun.nio.cs",
+    "java.base/sun.security.action",
+    "java.base/sun.util.calendar"
+  )
+
+  val forkArgs: Seq[String] = openModules.map(module => s"--add-opens=$module=ALL-UNNAMED")
+}
+
+object `package` extends BaseScalaModule {
+
+  def scalaVersion = Versions.scala213
+
+  def moduleDeps = Seq(build.common(Versions.scala213))
+
+  def mvnDeps = Seq(
+    mvn"org.apache.spark::spark-sql:${ExampleVersions.spark}",
+    mvn"org.apache.spark::spark-sql-kafka-0-10:${ExampleVersions.spark}",
+    mvn"io.delta::delta-spark:${ExampleVersions.delta}",
+    mvn"org.apache.kafka:kafka-clients:${ExampleVersions.kafkaClients}",
+    // Only needed when the Delta table lives in S3-compatible object storage
+    // (MinIO in this example's docker stack) instead of on the local disk.
+    mvn"org.apache.hadoop:hadoop-aws:${ExampleVersions.hadoop}",
+    mvn"com.amazonaws:aws-java-sdk-bundle:${ExampleVersions.awsSdk}"
+  )
+
+  def forkArgs = SparkJvm.forkArgs
+
+  def mainClass = Some("de.spark.streaming.Main")
+
+  object test extends ScalaTests with MunitTests with mill.scalalib.scalafmt.ScalafmtModule {
+
+    /**
+     * `ScalaTests` and `MunitTests` both define `mvnDeps`, so the test module has to say which one wins. MUnit's is the
+     * one that matters, and it is repeated here rather than inherited through `super` because Mill cannot resolve a
+     * `super` call from a module whose folder name contains a dash.
+     */
+    override def mvnDeps = Seq(mvn"org.scalameta::munit:${Versions.munit}")
+
+    /** The tests start a real, single-process Spark session, so they need the same JVM flags as the job. */
+    def forkArgs = SparkJvm.forkArgs
+
+    /** One Apache Spark session per suite is plenty; two suites in parallel would start two. */
+    def testParallelism = false
+  }
+}
