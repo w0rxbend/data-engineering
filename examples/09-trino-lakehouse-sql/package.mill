@@ -22,7 +22,5 @@ object `package` extends BaseScalaModule {
 
   def mainClass = Some("de.trino.lakehouse.Main")
 
-  object test extends ScalaTests with MunitTests {
-
-  }
+  object test extends ScalaTests with MunitTests {}
 }

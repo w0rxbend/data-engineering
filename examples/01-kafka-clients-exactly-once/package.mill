@@ -34,7 +34,5 @@ object `package` extends BaseScalaModule {
 
   def mainClass = Some("de.kafka.eos.Main")
 
-  object test extends ScalaTests with MunitTests {
-
-  }
+  object test extends ScalaTests with MunitTests {}
 }

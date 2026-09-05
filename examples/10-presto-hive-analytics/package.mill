@@ -41,9 +41,7 @@ object `package` extends BaseScalaModule {
   def mainClass = Some("de.presto.hive.Main")
 
   /** `ScalafmtModule` is mixed in explicitly so that `reformat` also covers the test sources. */
-  object test extends ScalaTests with MunitTests with mill.scalalib.scalafmt.ScalafmtModule {
-
-  }
+  object test extends ScalaTests with MunitTests with mill.scalalib.scalafmt.ScalafmtModule {}
 }
 
 /** Library versions pinned by this example only, so the root build file stays untouched. */
