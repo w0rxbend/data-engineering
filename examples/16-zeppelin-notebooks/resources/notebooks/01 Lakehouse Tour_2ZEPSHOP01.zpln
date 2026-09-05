@@ -1,0 +1,253 @@
+{
+  "paragraphs": [
+    {
+      "title": "What this note does",
+      "text": "%md\n## The online shop lakehouse, from a browser\n\nThis note reads the Delta Lake tables that `./mill examples.16-zeppelin-notebooks.run seed` wrote into\nthe MinIO object store, and turns them into numbers and charts. Nothing is installed on your machine:\nevery paragraph runs inside the Apache Zeppelin container.\n\n**Interpreters.** Zeppelin does not run code itself. It hands each paragraph to an *interpreter* - a\nseparate process that knows one language or one system. The first line of a paragraph, the *magic*,\npicks which one:\n\n| magic | interpreter setting | what it does |\n| --- | --- | --- |\n| `%md` | `md` | renders Markdown, like this paragraph |\n| `%spark` | `spark` | Scala against a live Apache Spark session |\n| `%spark.sql` | `spark`, its `sql` interpreter | SQL against the tables that session knows |\n| `%jdbc` | `jdbc` | SQL over a Java Database Connectivity driver; see note *02 Trino Federation* |\n\nThe three settings above are the only ones this stack configures, in\n`resources/interpreter/interpreter.json`. Open **Interpreter** in the top-right menu to read their\nproperties in the browser.\n\n**Run the paragraphs in order.** Zeppelin has no dependency graph between paragraphs: a paragraph sees\nwhatever the ones before it left behind in the interpreter process. The Scala paragraph below registers\nthe temporary views that every later `%spark.sql` paragraph queries, so it has to run first. Use\n*Run all paragraphs* (the play button in the note toolbar) and the order is taken care of.\n",
+      "user": "anonymous",
+      "config": {
+        "editorSetting": {
+          "language": "markdown",
+          "editOnDblClick": true,
+          "completionKey": "TAB",
+          "completionSupport": false
+        },
+        "colWidth": 12.0,
+        "editorMode": "ace/mode/markdown",
+        "fontSize": 9.0,
+        "editorHide": true,
+        "title": true,
+        "results": {},
+        "enabled": true,
+        "runOnSelectionChange": true,
+        "checkEmpty": true
+      },
+      "settings": {
+        "params": {},
+        "forms": {}
+      },
+      "apps": [],
+      "runtimeInfos": {},
+      "progressUpdateIntervalMs": 500,
+      "jobName": "paragraph_20250101-000001_1000",
+      "id": "20250101-000001_1000",
+      "dateCreated": "2025-01-01 00:00:00.000",
+      "status": "READY"
+    },
+    {
+      "title": "Read the Delta Lake tables",
+      "text": "%spark\n// The Delta Lake tables live in MinIO, an object store that speaks the Amazon S3 protocol.\n// `s3a://` is Hadoop's S3 client, configured with the MinIO address and credentials in the\n// spark interpreter settings, so no keys appear in the notebook itself.\nval warehouse = \"s3a://lakehouse/shop\"\n\nval orders     = spark.read.format(\"delta\").load(s\"$warehouse/orders\")\nval orderLines = spark.read.format(\"delta\").load(s\"$warehouse/order_lines\")\n\n// A temporary view gives a DataFrame a name inside this Spark session. Every %spark.sql\n// paragraph below queries these names; they disappear when the interpreter is restarted.\norders.createOrReplaceTempView(\"orders\")\norderLines.createOrReplaceTempView(\"order_lines\")\n\nprintln(s\"orders:      ${orders.count()} rows\")\nprintln(s\"order_lines: ${orderLines.count()} rows\")\norders.printSchema()\norders.show(5, truncate = false)\n",
+      "user": "anonymous",
+      "config": {
+        "editorSetting": {
+          "language": "scala",
+          "editOnDblClick": false,
+          "completionKey": "TAB",
+          "completionSupport": true
+        },
+        "colWidth": 12.0,
+        "editorMode": "ace/mode/scala",
+        "fontSize": 9.0,
+        "editorHide": false,
+        "title": true,
+        "results": {},
+        "enabled": true,
+        "runOnSelectionChange": true,
+        "checkEmpty": true
+      },
+      "settings": {
+        "params": {},
+        "forms": {}
+      },
+      "apps": [],
+      "runtimeInfos": {},
+      "progressUpdateIntervalMs": 500,
+      "jobName": "paragraph_20250101-000002_1001",
+      "id": "20250101-000002_1001",
+      "dateCreated": "2025-01-01 00:00:00.000",
+      "status": "READY"
+    },
+    {
+      "title": "Orders per day, for one country",
+      "text": "%spark.sql\n-- ${country=DE,DE|PL|UA|FR|ES} is a Zeppelin *dynamic form*. It renders a dropdown above this\n-- paragraph, and the value you choose is substituted into the query before Spark sees it.\n-- Change the country and the paragraph re-runs on its own.\nSELECT\n  date_format(placed_at, 'yyyy-MM-dd') AS day,\n  count(*)                             AS orders,\n  round(sum(total_cents) / 100.0, 2)   AS revenue_eur\nFROM orders\nWHERE country = '${country=DE,DE|PL|UA|FR|ES}'\nGROUP BY date_format(placed_at, 'yyyy-MM-dd')\nORDER BY day\n",
+      "user": "anonymous",
+      "config": {
+        "editorSetting": {
+          "language": "sql",
+          "editOnDblClick": false,
+          "completionKey": "TAB",
+          "completionSupport": true
+        },
+        "colWidth": 12.0,
+        "editorMode": "ace/mode/sql",
+        "fontSize": 9.0,
+        "editorHide": false,
+        "title": true,
+        "results": {
+          "0": {
+            "graph": {
+              "mode": "multiBarChart",
+              "height": 320.0,
+              "optionOpen": false,
+              "setting": {
+                "multiBarChart": {
+                  "rotate": {
+                    "degree": "-45"
+                  },
+                  "xLabelStatus": "default"
+                }
+              },
+              "commonSetting": {},
+              "keys": [
+                {
+                  "name": "day",
+                  "index": 0.0,
+                  "aggr": "sum"
+                }
+              ],
+              "values": [
+                {
+                  "name": "orders",
+                  "index": 1.0,
+                  "aggr": "sum"
+                },
+                {
+                  "name": "revenue_eur",
+                  "index": 2.0,
+                  "aggr": "sum"
+                }
+              ],
+              "groups": []
+            },
+            "helium": {}
+          }
+        },
+        "enabled": true,
+        "runOnSelectionChange": true,
+        "checkEmpty": true
+      },
+      "settings": {
+        "params": {},
+        "forms": {}
+      },
+      "apps": [],
+      "runtimeInfos": {},
+      "progressUpdateIntervalMs": 500,
+      "jobName": "paragraph_20250101-000003_1002",
+      "id": "20250101-000003_1002",
+      "dateCreated": "2025-01-01 00:00:00.000",
+      "status": "READY"
+    },
+    {
+      "title": "Revenue per article",
+      "text": "%spark.sql\n-- Zeppelin draws the result of any SQL paragraph itself: the icons under the paragraph switch\n-- between a table, a bar chart, a pie chart and a scatter plot, and the settings panel decides\n-- which column is a key and which is a value. This paragraph is stored with the bar chart chosen.\nSELECT\n  l.sku                                                AS sku,\n  sum(l.quantity)                                      AS units,\n  round(sum(l.quantity * l.unit_price_cents) / 100.0, 2) AS revenue_eur\nFROM order_lines l\nJOIN orders o ON o.order_id = l.order_id\nGROUP BY l.sku\nORDER BY revenue_eur DESC\n",
+      "user": "anonymous",
+      "config": {
+        "editorSetting": {
+          "language": "sql",
+          "editOnDblClick": false,
+          "completionKey": "TAB",
+          "completionSupport": true
+        },
+        "colWidth": 12.0,
+        "editorMode": "ace/mode/sql",
+        "fontSize": 9.0,
+        "editorHide": false,
+        "title": true,
+        "results": {
+          "0": {
+            "graph": {
+              "mode": "multiBarChart",
+              "height": 320.0,
+              "optionOpen": false,
+              "setting": {
+                "multiBarChart": {
+                  "rotate": {
+                    "degree": "-45"
+                  },
+                  "xLabelStatus": "default"
+                }
+              },
+              "commonSetting": {},
+              "keys": [
+                {
+                  "name": "sku",
+                  "index": 0.0,
+                  "aggr": "sum"
+                }
+              ],
+              "values": [
+                {
+                  "name": "revenue_eur",
+                  "index": 1.0,
+                  "aggr": "sum"
+                }
+              ],
+              "groups": []
+            },
+            "helium": {}
+          }
+        },
+        "enabled": true,
+        "runOnSelectionChange": true,
+        "checkEmpty": true
+      },
+      "settings": {
+        "params": {},
+        "forms": {}
+      },
+      "apps": [],
+      "runtimeInfos": {},
+      "progressUpdateIntervalMs": 500,
+      "jobName": "paragraph_20250101-000004_1003",
+      "id": "20250101-000004_1003",
+      "dateCreated": "2025-01-01 00:00:00.000",
+      "status": "READY"
+    },
+    {
+      "title": "Sharing, scheduling and what to try next",
+      "text": "%md\n### Reading the numbers\n\nThe country dropdown and the article chart above answer the two questions a shop analyst asks first:\n*where are we selling* and *what are we selling*. Both came out of the same Delta Lake tables that the\nApache Spark and Apache Flink examples in this repository write, with no copy step in between - that is\nthe point of a lakehouse.\n\n### Sharing this note\n\n* **Export**: the note toolbar has an export icon that downloads the note as a `.zpln` file - the same\n  JSON format as `resources/notebooks/`. Committing that file to a repository is how a notebook becomes\n  reviewable work rather than a private scratchpad.\n* **Import**: *Import note* on the Zeppelin home page accepts such a file, or a URL to one.\n* **Link**: the address bar contains the note identifier (`2ZEPSHOP01`). Anyone with access to this\n  Zeppelin server can open the same note at that address.\n* **Schedule**: the clock icon in the toolbar accepts a cron expression, for example `0 0 6 * * ?` for\n  every morning at six. Zeppelin then runs every paragraph on that schedule and leaves the results in\n  the note, which turns it into a small daily report.\n\n### What to try next\n\n1. Add `PT` to the choices in the country dropdown and re-run: the query returns nothing, because the\n   shared data generator only produces the five countries listed.\n2. Change `%spark.sql` to `%jdbc` in one of the query paragraphs. It fails, because the temporary views\n   only exist inside the Spark session - note *02 Trino Federation* shows what `%jdbc` can see instead.\n",
+      "user": "anonymous",
+      "config": {
+        "editorSetting": {
+          "language": "markdown",
+          "editOnDblClick": true,
+          "completionKey": "TAB",
+          "completionSupport": false
+        },
+        "colWidth": 12.0,
+        "editorMode": "ace/mode/markdown",
+        "fontSize": 9.0,
+        "editorHide": true,
+        "title": true,
+        "results": {},
+        "enabled": true,
+        "runOnSelectionChange": true,
+        "checkEmpty": true
+      },
+      "settings": {
+        "params": {},
+        "forms": {}
+      },
+      "apps": [],
+      "runtimeInfos": {},
+      "progressUpdateIntervalMs": 500,
+      "jobName": "paragraph_20250101-000005_1004",
+      "id": "20250101-000005_1004",
+      "dateCreated": "2025-01-01 00:00:00.000",
+      "status": "READY"
+    }
+  ],
+  "name": "01 Lakehouse Tour",
+  "id": "2ZEPSHOP01",
+  "defaultInterpreterGroup": "spark",
+  "version": "0.12.0",
+  "noteParams": {},
+  "noteForms": {},
+  "angularObjects": {},
+  "config": {
+    "isZeppelinNotebookCronEnable": false,
+    "looknfeel": "default",
+    "personalizedMode": "false"
+  },
+  "info": {}
+}

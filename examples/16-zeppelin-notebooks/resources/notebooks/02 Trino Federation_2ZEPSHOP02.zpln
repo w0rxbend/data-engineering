@@ -1,0 +1,215 @@
+{
+  "paragraphs": [
+    {
+      "title": "Why a second engine",
+      "text": "%md\n## The same lakehouse, through Trino\n\nThe previous note read the Delta Lake files with Apache Spark. This one asks **Trino** instead, a\ndistributed SQL engine that queries data where it lies. Zeppelin reaches it through its `jdbc`\ninterpreter, which loads a Java Database Connectivity driver and sends plain SQL over it.\n\n**How the connection is configured.** The `jdbc` interpreter setting in\n`resources/interpreter/interpreter.json` carries four properties:\n\n| property | value |\n| --- | --- |\n| `default.url` | `jdbc:trino://trino:8080` |\n| `default.driver` | `io.trino.jdbc.TrinoDriver` |\n| `default.user` | `zeppelin` |\n| `default.password` | empty |\n\n`default` is a *connection prefix*. One `jdbc` setting can hold several of them - a second prefix\ncalled `warehouse` would be configured as `warehouse.url`, `warehouse.driver`, and selected by writing\n`%jdbc(warehouse)` instead of `%jdbc`. That is how one interpreter serves many databases.\n\nThe driver itself is not bundled with Zeppelin, so it has to be put on the interpreter's classpath.\nZeppelin offers two ways. Each interpreter setting has a **dependencies** list, where a Maven\ncoordinate such as `io.trino:trino-jdbc:476` makes Zeppelin download the jar the first time the\ninterpreter starts. This example takes the other route: the compose stack downloads the jar into\n`/opt/lakehouse/jars`, and the `ZEPPELIN_INTP_CLASSPATH_OVERRIDES` variable puts that folder in front\nof every interpreter's classpath. Nothing is fetched while a reader waits, and the same folder also\ncarries the Hadoop client jars that Zeppelin's jdbc interpreter needs in order to start at all.\n",
+      "user": "anonymous",
+      "config": {
+        "editorSetting": {
+          "language": "markdown",
+          "editOnDblClick": true,
+          "completionKey": "TAB",
+          "completionSupport": false
+        },
+        "colWidth": 12.0,
+        "editorMode": "ace/mode/markdown",
+        "fontSize": 9.0,
+        "editorHide": true,
+        "title": true,
+        "results": {},
+        "enabled": true,
+        "runOnSelectionChange": true,
+        "checkEmpty": true
+      },
+      "settings": {
+        "params": {},
+        "forms": {}
+      },
+      "apps": [],
+      "runtimeInfos": {},
+      "progressUpdateIntervalMs": 500,
+      "jobName": "paragraph_20250101-000010_2000",
+      "id": "20250101-000010_2000",
+      "dateCreated": "2025-01-01 00:00:00.000",
+      "status": "READY"
+    },
+    {
+      "title": "What Trino can see",
+      "text": "%jdbc\n-- A catalog is one data source Trino has been told about. This stack configures a single one,\n-- `delta`, pointing at the Delta Lake tables in MinIO through a Hive Metastore.\nSHOW TABLES FROM delta.shop\n",
+      "user": "anonymous",
+      "config": {
+        "editorSetting": {
+          "language": "sql",
+          "editOnDblClick": false,
+          "completionKey": "TAB",
+          "completionSupport": true
+        },
+        "colWidth": 12.0,
+        "editorMode": "ace/mode/sql",
+        "fontSize": 9.0,
+        "editorHide": false,
+        "title": true,
+        "results": {},
+        "enabled": true,
+        "runOnSelectionChange": true,
+        "checkEmpty": true
+      },
+      "settings": {
+        "params": {},
+        "forms": {}
+      },
+      "apps": [],
+      "runtimeInfos": {},
+      "progressUpdateIntervalMs": 500,
+      "jobName": "paragraph_20250101-000011_2001",
+      "id": "20250101-000011_2001",
+      "dateCreated": "2025-01-01 00:00:00.000",
+      "status": "READY"
+    },
+    {
+      "title": "Revenue by country",
+      "text": "%jdbc\n-- Dynamic forms are a Zeppelin feature, not a Spark one: they work in front of any interpreter,\n-- including this one. The dropdown value is substituted into the text before the SQL is sent.\nSELECT\n  country,\n  count(*)                                    AS orders,\n  round(sum(total_cents) / 100.0, 2)          AS revenue_eur,\n  round(avg(total_cents) / 100.0, 2)          AS average_order_eur\nFROM delta.shop.orders\nWHERE country <> '${exclude_country=ES,DE|PL|UA|FR|ES}'\nGROUP BY country\nORDER BY revenue_eur DESC\n",
+      "user": "anonymous",
+      "config": {
+        "editorSetting": {
+          "language": "sql",
+          "editOnDblClick": false,
+          "completionKey": "TAB",
+          "completionSupport": true
+        },
+        "colWidth": 12.0,
+        "editorMode": "ace/mode/sql",
+        "fontSize": 9.0,
+        "editorHide": false,
+        "title": true,
+        "results": {
+          "0": {
+            "graph": {
+              "mode": "multiBarChart",
+              "height": 320.0,
+              "optionOpen": false,
+              "setting": {
+                "multiBarChart": {
+                  "rotate": {
+                    "degree": "-45"
+                  },
+                  "xLabelStatus": "default"
+                }
+              },
+              "commonSetting": {},
+              "keys": [
+                {
+                  "name": "country",
+                  "index": 0.0,
+                  "aggr": "sum"
+                }
+              ],
+              "values": [
+                {
+                  "name": "revenue_eur",
+                  "index": 1.0,
+                  "aggr": "sum"
+                }
+              ],
+              "groups": []
+            },
+            "helium": {}
+          }
+        },
+        "enabled": true,
+        "runOnSelectionChange": true,
+        "checkEmpty": true
+      },
+      "settings": {
+        "params": {},
+        "forms": {}
+      },
+      "apps": [],
+      "runtimeInfos": {},
+      "progressUpdateIntervalMs": 500,
+      "jobName": "paragraph_20250101-000012_2002",
+      "id": "20250101-000012_2002",
+      "dateCreated": "2025-01-01 00:00:00.000",
+      "status": "READY"
+    },
+    {
+      "title": "Revenue per article, computed by Trino",
+      "text": "%jdbc\n-- Exactly the join from note 01, this time executed by Trino rather than Spark. Same files,\n-- same answer, a different engine - which is the property that makes a lakehouse worth having.\nSELECT\n  l.sku,\n  sum(l.quantity)                                          AS units,\n  round(sum(l.quantity * l.unit_price_cents) / 100.0, 2)   AS revenue_eur\nFROM delta.shop.order_lines l\nJOIN delta.shop.orders o ON o.order_id = l.order_id\nGROUP BY l.sku\nORDER BY revenue_eur DESC\n",
+      "user": "anonymous",
+      "config": {
+        "editorSetting": {
+          "language": "sql",
+          "editOnDblClick": false,
+          "completionKey": "TAB",
+          "completionSupport": true
+        },
+        "colWidth": 12.0,
+        "editorMode": "ace/mode/sql",
+        "fontSize": 9.0,
+        "editorHide": false,
+        "title": true,
+        "results": {},
+        "enabled": true,
+        "runOnSelectionChange": true,
+        "checkEmpty": true
+      },
+      "settings": {
+        "params": {},
+        "forms": {}
+      },
+      "apps": [],
+      "runtimeInfos": {},
+      "progressUpdateIntervalMs": 500,
+      "jobName": "paragraph_20250101-000013_2003",
+      "id": "20250101-000013_2003",
+      "dateCreated": "2025-01-01 00:00:00.000",
+      "status": "READY"
+    },
+    {
+      "title": "Interpreter binding and what to try next",
+      "text": "%md\n### Interpreter binding\n\nA note does not have to be able to reach every interpreter on the server. **Interpreter binding**, the\ngear icon in the note toolbar, is the per-note list of settings this note may use, and the first entry\nin that list is the note's default - the interpreter a paragraph without a magic falls back to. This\nnote's default is `jdbc`, so removing the `%jdbc` line from a paragraph above changes nothing.\n\nBinding also decides how interpreter processes are shared. In the interpreter list each setting has an\noption for whether one process is shared by every note, or one is started per note, or per user.\nSharing is what makes the temporary views of note 01 visible across its paragraphs; isolating is what\nstops one runaway note from taking down everyone else's session.\n\n### What to try next\n\n1. Run the last paragraph, then open the Trino web interface at <http://localhost:11680> and look at\n   the finished query: it shows the plan Trino chose and how many bytes it read from the object store.\n2. Restart the `spark` interpreter from the interpreter page, then re-run a query paragraph in note 01.\n   The views are gone and the paragraph fails until the Scala paragraph runs again - a concrete\n   demonstration of what interpreter state means.\n",
+      "user": "anonymous",
+      "config": {
+        "editorSetting": {
+          "language": "markdown",
+          "editOnDblClick": true,
+          "completionKey": "TAB",
+          "completionSupport": false
+        },
+        "colWidth": 12.0,
+        "editorMode": "ace/mode/markdown",
+        "fontSize": 9.0,
+        "editorHide": true,
+        "title": true,
+        "results": {},
+        "enabled": true,
+        "runOnSelectionChange": true,
+        "checkEmpty": true
+      },
+      "settings": {
+        "params": {},
+        "forms": {}
+      },
+      "apps": [],
+      "runtimeInfos": {},
+      "progressUpdateIntervalMs": 500,
+      "jobName": "paragraph_20250101-000014_2004",
+      "id": "20250101-000014_2004",
+      "dateCreated": "2025-01-01 00:00:00.000",
+      "status": "READY"
+    }
+  ],
+  "name": "02 Trino Federation",
+  "id": "2ZEPSHOP02",
+  "defaultInterpreterGroup": "jdbc",
+  "version": "0.12.0",
+  "noteParams": {},
+  "noteForms": {},
+  "angularObjects": {},
+  "config": {
+    "isZeppelinNotebookCronEnable": false,
+    "looknfeel": "default",
+    "personalizedMode": "false"
+  },
+  "info": {}
+}

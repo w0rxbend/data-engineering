@@ -1,0 +1,346 @@
+{
+  "interpreterSettings": {
+    "spark": {
+      "id": "spark",
+      "name": "spark",
+      "group": "spark",
+      "properties": {
+        "SPARK_HOME": {
+          "name": "SPARK_HOME",
+          "value": "/opt/lakehouse/spark",
+          "type": "string",
+          "description": "Location of spark distribution"
+        },
+        "spark.master": {
+          "name": "spark.master",
+          "value": "local[*]",
+          "type": "string",
+          "description": "Spark master uri. local | yarn-client | yarn-cluster | spark master address of standalone mode, ex) spark://master_host:7077"
+        },
+        "spark.app.name": {
+          "name": "spark.app.name",
+          "value": "zeppelin-lakehouse",
+          "type": "string",
+          "description": "The name of spark application."
+        },
+        "spark.driver.memory": {
+          "name": "spark.driver.memory",
+          "value": "2g",
+          "type": "string",
+          "description": "Amount of memory to use for the driver process, i.e. where SparkContext is initialized, in the same format as JVM memory strings with a size unit suffix (\"k\", \"m\", \"g\" or \"t\") (e.g. 512m, 2g)."
+        },
+        "zeppelin.spark.useHiveContext": {
+          "name": "zeppelin.spark.useHiveContext",
+          "value": "false",
+          "type": "checkbox",
+          "description": "Use HiveContext instead of SQLContext if it is true. Enable hive for SparkSession."
+        },
+        "zeppelin.spark.printREPLOutput": {
+          "name": "zeppelin.spark.printREPLOutput",
+          "value": "true",
+          "type": "checkbox",
+          "description": "Print scala REPL output"
+        },
+        "zeppelin.spark.maxResult": {
+          "name": "zeppelin.spark.maxResult",
+          "value": "10000",
+          "type": "number",
+          "description": "Max number of Spark SQL result to display."
+        },
+        "zeppelin.spark.enableSupportedVersionCheck": {
+          "name": "zeppelin.spark.enableSupportedVersionCheck",
+          "value": "true",
+          "type": "checkbox",
+          "description": "Whether checking supported spark version. Developer only setting, not for production use"
+        },
+        "zeppelin.spark.sql.interpolation": {
+          "name": "zeppelin.spark.sql.interpolation",
+          "value": "true",
+          "type": "checkbox",
+          "description": "Enable ZeppelinContext variable interpolation into spark sql"
+        },
+        "spark.sql.extensions": {
+          "name": "spark.sql.extensions",
+          "value": "io.delta.sql.DeltaSparkSessionExtension",
+          "type": "string"
+        },
+        "spark.sql.catalog.spark_catalog": {
+          "name": "spark.sql.catalog.spark_catalog",
+          "value": "org.apache.spark.sql.delta.catalog.DeltaCatalog",
+          "type": "string"
+        },
+        "spark.hadoop.fs.s3a.endpoint": {
+          "name": "spark.hadoop.fs.s3a.endpoint",
+          "value": "http://minio:9000",
+          "type": "string"
+        },
+        "spark.hadoop.fs.s3a.access.key": {
+          "name": "spark.hadoop.fs.s3a.access.key",
+          "value": "minioadmin",
+          "type": "string"
+        },
+        "spark.hadoop.fs.s3a.secret.key": {
+          "name": "spark.hadoop.fs.s3a.secret.key",
+          "value": "minioadmin",
+          "type": "password"
+        },
+        "spark.hadoop.fs.s3a.path.style.access": {
+          "name": "spark.hadoop.fs.s3a.path.style.access",
+          "value": "true",
+          "type": "string"
+        },
+        "spark.hadoop.fs.s3a.connection.ssl.enabled": {
+          "name": "spark.hadoop.fs.s3a.connection.ssl.enabled",
+          "value": "false",
+          "type": "string"
+        },
+        "spark.hadoop.fs.s3a.aws.credentials.provider": {
+          "name": "spark.hadoop.fs.s3a.aws.credentials.provider",
+          "value": "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider",
+          "type": "string"
+        }
+      },
+      "status": "READY",
+      "interpreterGroup": [
+        {
+          "name": "spark",
+          "class": "org.apache.zeppelin.spark.SparkInterpreter",
+          "defaultInterpreter": true,
+          "editor": {
+            "language": "scala",
+            "editOnDblClick": false,
+            "completionKey": "TAB",
+            "completionSupport": true
+          }
+        },
+        {
+          "name": "sql",
+          "class": "org.apache.zeppelin.spark.SparkSqlInterpreter",
+          "defaultInterpreter": false,
+          "editor": {
+            "language": "sql",
+            "editOnDblClick": false,
+            "completionKey": "TAB",
+            "completionSupport": true
+          }
+        },
+        {
+          "name": "pyspark",
+          "class": "org.apache.zeppelin.spark.PySparkInterpreter",
+          "defaultInterpreter": false,
+          "editor": {
+            "language": "python",
+            "editOnDblClick": false,
+            "completionKey": "TAB",
+            "completionSupport": true
+          }
+        },
+        {
+          "name": "ipyspark",
+          "class": "org.apache.zeppelin.spark.IPySparkInterpreter",
+          "defaultInterpreter": false,
+          "editor": {
+            "language": "python",
+            "editOnDblClick": false,
+            "completionSupport": true,
+            "completionKey": "TAB"
+          }
+        },
+        {
+          "name": "r",
+          "class": "org.apache.zeppelin.spark.SparkRInterpreter",
+          "defaultInterpreter": false,
+          "editor": {
+            "language": "r",
+            "editOnDblClick": false,
+            "completionSupport": false,
+            "completionKey": "TAB"
+          }
+        },
+        {
+          "name": "ir",
+          "class": "org.apache.zeppelin.spark.SparkIRInterpreter",
+          "defaultInterpreter": false,
+          "editor": {
+            "language": "r",
+            "editOnDblClick": false,
+            "completionSupport": true,
+            "completionKey": "TAB"
+          }
+        },
+        {
+          "name": "shiny",
+          "class": "org.apache.zeppelin.spark.SparkShinyInterpreter",
+          "defaultInterpreter": false,
+          "editor": {
+            "language": "r",
+            "editOnDblClick": false,
+            "completionSupport": true,
+            "completionKey": "TAB"
+          }
+        }
+      ],
+      "dependencies": [],
+      "option": {
+        "remote": true,
+        "port": -1,
+        "isExistingProcess": false,
+        "setPermission": false,
+        "owners": [],
+        "isUserImpersonate": false
+      }
+    },
+    "md": {
+      "id": "md",
+      "name": "md",
+      "group": "md",
+      "properties": {
+        "markdown.parser.type": {
+          "name": "markdown.parser.type",
+          "value": "flexmark",
+          "type": "string",
+          "description": "Markdown Parser Type. Available values: markdown4j, flexmark. Default = flexmark"
+        }
+      },
+      "status": "READY",
+      "interpreterGroup": [
+        {
+          "name": "md",
+          "class": "org.apache.zeppelin.markdown.Markdown",
+          "defaultInterpreter": false,
+          "editor": {
+            "language": "markdown",
+            "editOnDblClick": true,
+            "completionSupport": false
+          }
+        }
+      ],
+      "dependencies": [],
+      "option": {
+        "remote": true,
+        "port": -1,
+        "isExistingProcess": false,
+        "setPermission": false,
+        "owners": [],
+        "isUserImpersonate": false
+      }
+    },
+    "jdbc": {
+      "id": "jdbc",
+      "name": "jdbc",
+      "group": "jdbc",
+      "properties": {
+        "default.url": {
+          "name": "default.url",
+          "value": "jdbc:trino://trino:8080",
+          "type": "string",
+          "description": "The URL for JDBC."
+        },
+        "default.user": {
+          "name": "default.user",
+          "value": "zeppelin",
+          "type": "string",
+          "description": "The JDBC user name"
+        },
+        "default.password": {
+          "name": "default.password",
+          "value": "",
+          "type": "password",
+          "description": "The JDBC user password"
+        },
+        "default.driver": {
+          "name": "default.driver",
+          "value": "io.trino.jdbc.TrinoDriver",
+          "type": "string",
+          "description": "JDBC Driver Name"
+        },
+        "common.max_count": {
+          "name": "common.max_count",
+          "value": "1000",
+          "type": "number",
+          "description": "Max number of SQL result to display."
+        },
+        "zeppelin.jdbc.auth.type": {
+          "name": "zeppelin.jdbc.auth.type",
+          "value": "SIMPLE",
+          "type": "string",
+          "description": "If auth type is needed, Example: KERBEROS"
+        },
+        "zeppelin.jdbc.interpolation": {
+          "name": "zeppelin.jdbc.interpolation",
+          "value": "true",
+          "type": "checkbox",
+          "description": "Enable ZeppelinContext variable interpolation into paragraph text"
+        },
+        "zeppelin.jdbc.maxRows": {
+          "name": "zeppelin.jdbc.maxRows",
+          "value": "1000",
+          "type": "number",
+          "description": "Maximum number of rows fetched from the query."
+        }
+      },
+      "status": "READY",
+      "interpreterGroup": [
+        {
+          "name": "sql",
+          "class": "org.apache.zeppelin.jdbc.JDBCInterpreter",
+          "defaultInterpreter": false,
+          "editor": {
+            "language": "sql",
+            "editOnDblClick": false,
+            "completionSupport": true
+          }
+        }
+      ],
+      "dependencies": [],
+      "option": {
+        "remote": true,
+        "port": -1,
+        "isExistingProcess": false,
+        "setPermission": false,
+        "owners": [],
+        "isUserImpersonate": false
+      }
+    }
+  },
+  "interpreterRepositories": [
+    {
+      "id": "central",
+      "type": "default",
+      "url": "https://repo1.maven.org/maven2/",
+      "host": "repo1.maven.org",
+      "protocol": "https",
+      "releasePolicy": {
+        "enabled": true,
+        "updatePolicy": "daily",
+        "checksumPolicy": "warn"
+      },
+      "snapshotPolicy": {
+        "enabled": true,
+        "updatePolicy": "daily",
+        "checksumPolicy": "warn"
+      },
+      "mirroredRepositories": [],
+      "repositoryManager": false
+    },
+    {
+      "id": "local",
+      "type": "default",
+      "url": "file:///opt/zeppelin/.m2/repository",
+      "host": "",
+      "protocol": "file",
+      "releasePolicy": {
+        "enabled": true,
+        "updatePolicy": "daily",
+        "checksumPolicy": "warn"
+      },
+      "snapshotPolicy": {
+        "enabled": true,
+        "updatePolicy": "daily",
+        "checksumPolicy": "warn"
+      },
+      "mirroredRepositories": [],
+      "repositoryManager": false
+    }
+  ]
+}

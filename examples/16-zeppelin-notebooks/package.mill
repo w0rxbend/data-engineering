@@ -1,0 +1,46 @@
+package build.examples.`16-zeppelin-notebooks`
+
+import mill.*
+import mill.scalalib.*
+import build.*
+
+/** Versions pinned by this example only, so the root build file stays untouched. */
+object ExampleVersions {
+
+  /**
+   * Trino JDBC (Java Database Connectivity) driver. The seeding helper uses it to create and fill the Delta Lake
+   * tables, and the Apache Zeppelin `%jdbc` interpreter uses the very same driver version inside its container.
+   */
+  val trinoJdbc = "476"
+
+  /** upickle: the JSON library used to read the shipped notebook and interpreter files. */
+  val upickle = "4.4.3"
+}
+
+/**
+ * Example 16 - Apache Zeppelin as the interactive notebook front end of the lakehouse.
+ *
+ * Almost everything this example demonstrates lives outside the Java Virtual Machine: the notebooks are JSON documents
+ * under `resources/notebooks/`, the interpreter configuration is a JSON document under `resources/interpreter/`, and
+ * both are mounted straight into the Zeppelin container by the Docker Compose stack.
+ *
+ * The Scala code exists for the two jobs a notebook cannot do for itself:
+ *   - seed the Delta Lake tables the notebooks read, from the shared data generator;
+ *   - check, in an ordinary unit test that needs no container, that every shipped notebook is well-formed JSON and only
+ *     uses interpreters the compose stack actually configures.
+ */
+object `package` extends BaseScalaModule {
+
+  def scalaVersion = Versions.scala3
+
+  def moduleDeps = Seq(build.common(Versions.scala3))
+
+  def mvnDeps = Seq(
+    mvn"io.trino:trino-jdbc:${ExampleVersions.trinoJdbc}",
+    mvn"com.lihaoyi::upickle:${ExampleVersions.upickle}"
+  )
+
+  def mainClass = Some("de.zeppelin.notebooks.Main")
+
+  object test extends ScalaTests with MunitTests
+}
