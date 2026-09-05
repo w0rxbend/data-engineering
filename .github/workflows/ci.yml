@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docker-mill:
+    name: Docker Mill smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - name: Compile and test shared code and the Scala Arrow bridge in the build container
+        run: |
+          scripts/mill-docker.sh 'common[3.3.8].test'
+          scripts/mill-docker.sh examples.12-polars-arrow-bridge.test
+
+  repository-contracts:
+    name: Shell and Compose contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check scripts, runner regressions, and Compose models
+        run: scripts/check-repo.sh static
+
+  mill:
+    name: Format, compile, and test
+    needs: repository-contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      MILL_JOBS: "2"
+      SPARK_LOCAL_IP: 127.0.0.1
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cache/coursier
+            ~/.cache/mill
+          key: mill-${{ runner.os }}-${{ hashFiles('.mill-version', 'build.mill', 'common/package.mill', 'examples/**/package.mill') }}
+          restore-keys: |
+            mill-${{ runner.os }}-
+      - name: Check formatting, compilation, and tests
+        run: scripts/check-repo.sh build

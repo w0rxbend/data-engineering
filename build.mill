@@ -29,18 +29,38 @@ object Versions {
   val scalatest = "3.2.20"
 }
 
+/** Compiler policy shared by the modules without forcing new warnings on existing examples. */
+object BuildSettings {
+  val javaRelease = "17"
+
+  val commonScalacOptions = Seq(
+    "-deprecation",
+    "-encoding",
+    "UTF-8",
+    "-feature",
+    "-unchecked",
+    "-release",
+    javaRelease
+  )
+
+  def scalacOptionsFor(scalaVersion: String): Seq[String] =
+    commonScalacOptions ++ (if (scalaVersion.startsWith("3.")) Seq("-no-indent") else Seq.empty)
+
+  val javacOptions = Seq("--release", javaRelease, "-encoding", "UTF-8", "-Xlint:all")
+}
+
 /** Settings shared by every Scala module in the repository. */
 trait BaseScalaModule extends ScalaModule with ScalafmtModule {
   def jvmVersion = Versions.jvm
 
-  def scalacOptions = Seq("-deprecation", "-feature", "-unchecked", "-release", "17")
+  def scalacOptions = BuildSettings.scalacOptionsFor(scalaVersion())
 }
 
 /** Settings shared by every Java module in the repository. */
 trait BaseJavaModule extends JavaModule {
   def jvmVersion = Versions.jvm
 
-  def javacOptions = Seq("--release", "17", "-Xlint:all")
+  def javacOptions = BuildSettings.javacOptions
 }
 
 /**
