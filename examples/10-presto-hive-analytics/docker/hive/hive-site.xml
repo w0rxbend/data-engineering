@@ -1,0 +1,93 @@
+<?xml version="1.0"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<!--
+  Configuration of the standalone Apache Hive Metastore.
+
+  The metastore is a small service with a relational database behind it. It stores
+  *only* metadata: which tables exist, which columns they have, where their files
+  live, and which partitions have been registered. It never reads the data files
+  themselves - PrestoDB does that. Everything below therefore falls into two
+  groups: how to reach the metadata database, and how to reach object storage for
+  the few operations (such as creating a schema directory) that do touch storage.
+-->
+<configuration>
+
+  <!-- Where the metadata lives: a PostgreSQL database in its own container. -->
+  <property>
+    <name>javax.jdo.option.ConnectionURL</name>
+    <value>jdbc:postgresql://metastore-db:5432/metastore</value>
+  </property>
+  <property>
+    <name>javax.jdo.option.ConnectionDriverName</name>
+    <value>org.postgresql.Driver</value>
+  </property>
+  <property>
+    <name>javax.jdo.option.ConnectionUserName</name>
+    <value>hive</value>
+  </property>
+  <property>
+    <name>javax.jdo.option.ConnectionPassword</name>
+    <value>hive</value>
+  </property>
+
+  <!-- The Thrift port clients connect to. Thrift is the binary protocol the metastore speaks. -->
+  <property>
+    <name>metastore.thrift.port</name>
+    <value>9083</value>
+  </property>
+
+  <!--
+    Default location for managed tables. This example only creates an external
+    table with an explicit location, but the metastore refuses to start a schema
+    without a warehouse root to fall back on.
+  -->
+  <property>
+    <name>metastore.warehouse.dir</name>
+    <value>s3a://lake/warehouse</value>
+  </property>
+
+  <!--
+    S3A is the Hadoop filesystem implementation for the Amazon S3 protocol, which
+    MinIO also speaks. Path-style access puts the bucket in the URL path instead of
+    in the hostname, because a container has no wildcard DNS to resolve
+    `lake.minio` with.
+  -->
+  <property>
+    <name>fs.s3a.endpoint</name>
+    <value>http://minio:9000</value>
+  </property>
+  <property>
+    <name>fs.s3a.path.style.access</name>
+    <value>true</value>
+  </property>
+  <property>
+    <name>fs.s3a.connection.ssl.enabled</name>
+    <value>false</value>
+  </property>
+  <property>
+    <name>fs.s3a.access.key</name>
+    <value>minioadmin</value>
+  </property>
+  <property>
+    <name>fs.s3a.secret.key</name>
+    <value>minioadmin</value>
+  </property>
+  <property>
+    <name>fs.s3a.aws.credentials.provider</name>
+    <value>org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider</value>
+  </property>
+
+  <!--
+    The metastore is used on its own here, without HiveServer2 or Tez. Turning off
+    the event notification listeners and the schema-version check keeps the startup
+    log free of warnings about components this stack does not run.
+  -->
+  <property>
+    <name>metastore.schema.verification</name>
+    <value>false</value>
+  </property>
+  <property>
+    <name>metastore.event.db.notification.api.auth</name>
+    <value>false</value>
+  </property>
+</configuration>

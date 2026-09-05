@@ -1,0 +1,56 @@
+package build.examples.`10-presto-hive-analytics`
+
+import mill.*
+import mill.scalalib.*
+import build.*
+
+/**
+ * Example 10: ad-hoc analytics with PrestoDB over a Hive-partitioned Parquet table in object storage.
+ *
+ * The example has two halves. The first writes the shared clickstream to Apache Parquet files laid out in the Apache
+ * Hive partition convention (`country=DE/dt=2023-11-14/`) and uploads them to MinIO, an S3-compatible object store.
+ * Apache Spark is deliberately absent: `parquet-avro` writes the files directly, which keeps the moving parts visible.
+ * The second half talks to PrestoDB over JDBC (Java Database Connectivity, the standard Java API for SQL databases) to
+ * register the files as an external Hive table and run analytical queries over them.
+ */
+object `package` extends BaseScalaModule {
+  def scalaVersion = Versions.scala3
+
+  def moduleDeps = Seq(build.common(Versions.scala3))
+
+  def mvnDeps = Seq(
+    // The PrestoDB JDBC driver. Besides plain SQL it exposes per-query statistics
+    // (rows and bytes processed), which is what makes the partition-pruning
+    // comparison in this example measurable rather than anecdotal.
+    mvn"com.facebook.presto:presto-jdbc:${ExampleVersions.presto}",
+    // parquet-avro writes Parquet files from Avro records. Avro is used purely as a
+    // convenient in-memory record shape; nothing in the pipeline reads Avro files.
+    mvn"org.apache.parquet:parquet-avro:${ExampleVersions.parquet}",
+    // parquet-avro compiles against the Hadoop APIs. `hadoop-client-api` and
+    // `hadoop-client-runtime` are the two shaded jars that replace the several dozen
+    // unshaded Hadoop artifacts, which keeps this classpath small and conflict-free.
+    mvn"org.apache.hadoop:hadoop-client-api:${ExampleVersions.hadoop}",
+    mvn"org.apache.hadoop:hadoop-client-runtime:${ExampleVersions.hadoop}",
+    // The AWS SDK uploads the finished local files to MinIO. Using the SDK instead of
+    // the Hadoop S3A filesystem means the Parquet writer stays a plain local-disk
+    // component that unit tests can point at a temporary directory.
+    mvn"software.amazon.awssdk:s3:${ExampleVersions.awsSdk}",
+    mvn"org.slf4j:slf4j-simple:${ExampleVersions.slf4j}"
+  )
+
+  def mainClass = Some("de.presto.hive.Main")
+
+  /** `ScalafmtModule` is mixed in explicitly so that `reformat` also covers the test sources. */
+  object test extends ScalaTests with MunitTests with mill.scalalib.scalafmt.ScalafmtModule {
+
+  }
+}
+
+/** Library versions pinned by this example only, so the root build file stays untouched. */
+object ExampleVersions {
+  val presto  = "0.293"
+  val parquet = "1.15.2"
+  val hadoop  = "3.4.1"
+  val awsSdk  = "2.31.78"
+  val slf4j   = "2.0.17"
+}

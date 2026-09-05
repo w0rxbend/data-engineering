@@ -1,0 +1,177 @@
+# Local stack for example 10: PrestoDB over a Hive-partitioned Parquet table in
+# S3-compatible object storage.
+#
+# Four long-running services, each with one job:
+#   minio           - object storage, holds the Parquet files
+#   metastore-db    - PostgreSQL, holds the Hive metastore's own metadata
+#   hive-metastore  - answers "which tables and partitions exist, and where"
+#   presto          - plans and runs the SQL
+#
+# Every published host port is inside this example's reserved range 11000-11099,
+# so this stack runs side by side with every other example in the repository.
+name: de-10-presto-hive
+
+services:
+  # MinIO speaks the Amazon S3 API, so both PrestoDB and the AWS SDK used by the
+  # Scala loader talk to it exactly as they would to real object storage.
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    container_name: de-10-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      # S3 API for the Scala loader: http://localhost:11000
+      - "11000:9000"
+      # Web console, to browse the partition directories: http://localhost:11001
+      - "11001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 10s
+    networks: [de10]
+
+  # A one-shot container that creates the bucket and then exits. The Scala loader
+  # would create it too, but having it exist before anything else starts keeps the
+  # metastore from complaining about a missing warehouse root.
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    container_name: de-10-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin &&
+      mc mb --ignore-existing local/lake &&
+      echo 'bucket local/lake is ready'
+      "
+    networks: [de10]
+
+  # The relational database behind the Hive metastore. It holds table and partition
+  # definitions - a few kilobytes - and never sees a single clickstream event.
+  #
+  # PostgreSQL 13 rather than a current release: the PostgreSQL driver bundled with
+  # Apache Hive 3.1.3 predates SCRAM-SHA-256, the password scheme PostgreSQL made the
+  # default in version 14, and fails to log in against a newer server with
+  # "authentication type 10 is not supported".
+  metastore-db:
+    image: postgres:13.16-alpine
+    container_name: de-10-metastore-db
+    environment:
+      POSTGRES_DB: metastore
+      POSTGRES_USER: hive
+      POSTGRES_PASSWORD: hive
+    ports:
+      # Exposed so you can look at the metastore's own tables with psql: localhost:11032
+      - "11032:5432"
+    volumes:
+      - metastore-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hive -d metastore"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+    networks: [de10]
+
+  # Creates the metastore's database schema, then exits. The Apache Hive image
+  # initialises the schema in its own entrypoint, but unconditionally, so it fails on
+  # the second start. Doing it here - and only when `schematool -info` says the schema
+  # is missing - makes restarting the stack safe.
+  metastore-schema:
+    image: apache/hive:3.1.3
+    container_name: de-10-metastore-schema
+    depends_on:
+      metastore-db:
+        condition: service_healthy
+    entrypoint:
+      - /bin/bash
+      - -c
+      - >-
+        /opt/hive/bin/schematool -dbType postgres -info > /dev/null 2>&1
+        || /opt/hive/bin/schematool -dbType postgres -initSchema
+    volumes:
+      - ./hive/hive-site.xml:/opt/hive/conf/hive-site.xml:ro
+    networks: [de10]
+
+  # The standalone Apache Hive metastore: the service that answers "which tables and
+  # partitions exist, and where are their files".
+  #
+  # Hive 3 rather than Hive 4 is deliberate. PrestoDB 0.293 speaks the Thrift metastore
+  # protocol as it was before Hive 4 renamed its methods, so a Hive 4 metastore answers
+  # every request with `Invalid method name: 'get_table'`. This is one of the concrete
+  # places where PrestoDB and Trino have drifted apart: Trino's metastore client tracks
+  # the newer protocol.
+  hive-metastore:
+    image: apache/hive:3.1.3
+    container_name: de-10-hive-metastore
+    depends_on:
+      metastore-schema:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      SERVICE_NAME: metastore
+      DB_DRIVER: postgres
+      # The schema was already created by `metastore-schema`, so the image's own
+      # initialisation step is skipped.
+      IS_RESUME: "true"
+      # Hadoop's S3A filesystem ships with the image but lives outside the default
+      # classpath, in Hadoop's "tools" directory. The metastore needs it to create the
+      # schema directory in object storage.
+      HADOOP_CLASSPATH: "/opt/hadoop/share/hadoop/tools/lib/*"
+    ports:
+      # Thrift endpoint, in case you want to inspect it from another tool: localhost:11083
+      - "11083:9083"
+    volumes:
+      - ./hive/hive-site.xml:/opt/hive/conf/hive-site.xml:ro
+    healthcheck:
+      # The metastore has no HTTP endpoint, so readiness is checked by opening the
+      # Thrift port from inside the container.
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/localhost/9083'"]
+      interval: 10s
+      timeout: 5s
+      retries: 40
+      start_period: 30s
+    networks: [de10]
+
+  # PrestoDB, running as a single node that both plans and executes queries.
+  presto:
+    image: prestodb/presto:0.293
+    container_name: de-10-presto
+    depends_on:
+      hive-metastore:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    ports:
+      # JDBC endpoint and web user interface: http://localhost:11080
+      - "11080:8080"
+    volumes:
+      - ./presto/config.properties:/opt/presto-server/etc/config.properties:ro
+      - ./presto/jvm.config:/opt/presto-server/etc/jvm.config:ro
+      - ./presto/node.properties:/opt/presto-server/etc/node.properties:ro
+      - ./presto/catalog/hive.properties:/opt/presto-server/etc/catalog/hive.properties:ro
+    healthcheck:
+      # PrestoDB reports its own readiness; a coordinator answers queries only once
+      # this endpoint returns `"starting": false`.
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/v1/info | grep -q '\"starting\":false'"]
+      interval: 10s
+      timeout: 5s
+      retries: 40
+      start_period: 20s
+    networks: [de10]
+
+networks:
+  de10:
+    name: de-10-presto-hive
+
+volumes:
+  minio-data:
+  metastore-db-data:
