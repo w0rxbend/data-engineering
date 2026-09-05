@@ -44,6 +44,7 @@ For environment overrides, use Compose directly. Set `DE_WORKSPACE` to the absol
 checkout path when mixing this with the wrapper or host builds:
 
 ```bash
+mkdir -p .docker-cache
 DE_WORKSPACE="$PWD" DOCKER_UID="$(id -u)" DOCKER_GID="$(id -g)" \
   docker compose run --rm -e ORDER_COUNT=1000 mill examples.11-parquet-arrow-toolkit.run
 ```

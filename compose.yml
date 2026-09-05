@@ -7,9 +7,16 @@ services:
     working_dir: ${DE_WORKSPACE:-/workspace}
     volumes:
       - .:${DE_WORKSPACE:-/workspace}
+      # Mill treats reads within the checkout as task inputs. Resolver caches
+      # must therefore appear outside it, even though they persist on the host.
+      - type: bind
+        source: ./.docker-cache
+        target: /cache
+        bind:
+          create_host_path: false
     user: "${DOCKER_UID:-1000}:${DOCKER_GID:-1000}"
     environment:
-      XDG_CACHE_HOME: ${DE_WORKSPACE:-/workspace}/.docker-cache
+      XDG_CACHE_HOME: /cache
       SPARK_LOCAL_IP: 127.0.0.1
     # Reuse the localhost endpoints in every example's README and Kafka metadata.
     # Docker Desktop requires Settings > Resources > Network > host networking.
@@ -17,4 +24,3 @@ services:
     init: true
     entrypoint: ["./mill", "--no-server", "-j", "2"]
     command: ["resolve", "__"]
-
