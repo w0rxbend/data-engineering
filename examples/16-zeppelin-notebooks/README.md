@@ -116,13 +116,18 @@ would fail only when a reader clicks run, minutes after the containers have star
 
 * every note is valid JSON with an identifier, a name and paragraphs;
 * every note's file name agrees with the note inside it;
-* every magic names an interpreter setting that `interpreter.json` actually configures;
+* every magic names an interpreter setting that `interpreter.json` actually configures, and a dotted magic such as
+  `%spark.sql` names a real interpreter inside that setting;
+* malformed leading magic syntax is rejected instead of silently falling back to the note default;
 * the `jdbc` setting points at Trino with Trino's driver, and the `spark` setting at MinIO with the
   Delta Lake extension;
 * the country dropdown offers exactly the five countries the shared generator produces, and defaults to
   one of them.
 
 It needs no Docker, and it runs in well under a second.
+
+The command-line `check` runs the same rules and now exits non-zero before `seed` if any notebook is invalid. Printing
+a warning and continuing would leave a fully populated lakehouse paired with a notebook that still fails on click.
 
 ### What the Docker Compose stack does before Zeppelin starts
 
@@ -139,6 +144,13 @@ repository, because Zeppelin rewrites both when a reader edits a note or an inte
 The consequence is worth knowing: **`docker compose up` re-installs the shipped notes**, discarding
 browser edits to them. Export a note you want to keep before bringing the stack up again.
 
+The version pins are intentional. Zeppelin 0.12 documents Spark 3.3 through 3.5 and Scala 2.12/2.13 support when
+`SPARK_HOME` is supplied, and the [Delta Lake compatibility table](https://docs.delta.io/releases/) pairs Delta 3.2.x
+with Spark 3.5.x. This stack therefore combines Spark 3.5.3's Scala 2.12 distribution with Delta 3.2.1. Trino 476's
+[Delta Lake connector](https://trino.io/docs/476/connector/delta-lake.html) supplies the other engine and uses its
+native S3 client for MinIO. These pins establish upstream-declared compatibility; they do not make concurrent writes
+from Spark and Trino safe. The exercise has one writer, the Trino seeder.
+
 ## Run it
 
 From the repository root:
@@ -146,11 +158,17 @@ From the repository root:
 ```bash
 # 1. Start the stack. The first run downloads Apache Spark (about 400 MB) inside the
 #    init container, so expect a few minutes; later runs reuse the volume.
-docker compose -f examples/16-zeppelin-notebooks/docker/docker-compose.yml up -d
+docker compose -f examples/16-zeppelin-notebooks/docker/docker-compose.yml up -d --wait
 
 # 2. Check the notebooks and load the lakehouse: 2100 orders spread over 14 days.
 ./mill examples.16-zeppelin-notebooks.run
 ```
+
+The default mode checks first and seeds only if validation passes. Seeding is repeatable but not atomic across both
+tables: it empties and refills `orders`, then does the same for `order_lines`, as a sequence of Delta transactions. If
+the process or Trino stops halfway, readers can temporarily see incomplete or mismatched tables. Restore the stack and
+run the same command again; the initial deletes repair the partial attempt. Do not run two seeders, or a Spark writer,
+at the same time—the Compose catalog explicitly enables Trino's non-concurrent-write mode for this single-writer demo.
 
 Expected output from step 2:
 
@@ -192,6 +210,8 @@ Run only the notebook checks, with nothing started at all:
    `resources/notebooks/01 Lakehouse Tour_2ZEPSHOP01.zpln` and run
    `./mill examples.16-zeppelin-notebooks.test`. The failure names the interpreter and lists the ones
    that are configured - the mistake is caught without a single container running.
+   Try `%spark.typo` as well: the setting exists, but the new member-level check reports that `typo` is not one of its
+   configured interpreters. The default `all` command stops before changing either Delta table.
 2. **Add a choice to the dropdown.** Put `PT` into the country form and re-run: the query returns
    nothing, because the shared generator only produces the five countries listed. The test notices this
    too, which is the point of asserting on the option list.
@@ -207,6 +227,9 @@ Run only the notebook checks, with nothing started at all:
 6. **Compare the two engines.** Run the revenue-per-article paragraph in both notes. The numbers agree
    because Spark and Trino read the same Delta Lake files - then look at the Trino web interface to see
    how much of the object store the query actually touched.
+7. **Interrupt a seed and replay it.** Stop Trino during the insert phase, observe that the command fails, start Trino,
+   and run the seed again. The second run deletes both partial table contents and deterministically rebuilds them. This
+   demonstrates retry recovery, not a cross-table transaction: readers are not isolated from the partial interval.
 
 ## Further reading in this repository
 

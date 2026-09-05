@@ -8,7 +8,10 @@ final class InterpreterConfigSuite extends munit.FunSuite {
       |    "md": {
       |      "name": "md",
       |      "group": "md",
-      |      "properties": { "markdown.parser.type": { "name": "markdown.parser.type", "value": "flexmark" } }
+      |      "properties": { "markdown.parser.type": { "name": "markdown.parser.type", "value": "flexmark" } },
+      |      "interpreterGroup": [
+      |        { "name": "md", "class": "org.apache.zeppelin.markdown.Markdown" }
+      |      ]
       |    }
       |  }
       |}""".stripMargin
@@ -17,6 +20,7 @@ final class InterpreterConfigSuite extends munit.FunSuite {
     val config = InterpreterConfig.parse(json).fold(failure => fail(failure), identity)
     assertEquals(config.names, Set("md"))
     assertEquals(config.setting("md").flatMap(_.properties.get("markdown.parser.type")), Some("flexmark"))
+    assertEquals(config.setting("md").map(_.interpreters), Some(Set("md")))
   }
 
   test("a configuration without interpreter settings is rejected") {

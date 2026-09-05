@@ -23,7 +23,7 @@ object NotebookCheck {
    *   the interpreter settings the Docker Compose stack installs
    */
   def problems(fileName: String, notebook: Notebook, config: InterpreterConfig): List[String] =
-    fileNameProblems(fileName, notebook) ++ interpreterProblems(notebook, config)
+    fileNameProblems(fileName, notebook) ++ magicSyntaxProblems(notebook) ++ interpreterProblems(notebook, config)
 
   /**
    * Zeppelin derives a note's identity from its file name: `<display name>_<note id>.zpln`. A file whose name disagrees
@@ -42,5 +42,24 @@ object NotebookCheck {
       .map(group =>
         s"interpreter '$group' is used but not configured; " +
           s"configured settings are ${config.names.toList.sorted.mkString(", ")}"
-      )
+      ) ++ notebook.paragraphs
+      .flatMap(_.magic)
+      .flatMap { magic =>
+        magic.name.flatMap { interpreterName =>
+          config.setting(magic.group).filterNot(_.interpreters.contains(interpreterName)).map { setting =>
+            s"magic '${magic.render}' names an interpreter that setting '${setting.name}' does not provide; " +
+              s"available names are ${setting.interpreters.toList.sorted.mkString(", ")}"
+          }
+        }
+      }
+      .distinct
+
+  /**
+   * A leading percent sign is intended as a magic; silently treating malformed syntax as the note default is unsafe.
+   */
+  def magicSyntaxProblems(notebook: Notebook): List[String] =
+    notebook.paragraphs.zipWithIndex.collect {
+      case (paragraph, index) if paragraph.text.stripLeading().startsWith("%") && paragraph.magic.isEmpty =>
+        s"paragraph ${index + 1} starts with an invalid interpreter magic"
+    }
 }

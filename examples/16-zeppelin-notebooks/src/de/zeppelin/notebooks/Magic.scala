@@ -43,10 +43,10 @@ object Magic {
     if (!trimmed.startsWith("%")) None
     else {
       val token = trimmed.drop(1).takeWhile(isMagicChar)
-      token.split('.').toList match {
-        case group :: Nil if group.nonEmpty         => Some(Magic(group, None))
-        case group :: name :: Nil if group.nonEmpty => Some(Magic(group, Some(name)))
-        case _                                      => None
+      token.split("\\.", -1).toList match {
+        case group :: Nil if group.nonEmpty                          => Some(Magic(group, None))
+        case group :: name :: Nil if group.nonEmpty && name.nonEmpty => Some(Magic(group, Some(name)))
+        case _                                                       => None
       }
     }
   }

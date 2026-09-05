@@ -16,8 +16,15 @@ import scala.util.Try
  *   the interpreter group the setting instantiates
  * @param properties
  *   the configured values, for example `SPARK_HOME` or `default.url`
+ * @param interpreters
+ *   the named interpreter members inside the setting, for example `spark` and `sql` inside the `spark` setting
  */
-final case class InterpreterSetting(name: String, group: String, properties: Map[String, String])
+final case class InterpreterSetting(
+    name: String,
+    group: String,
+    properties: Map[String, String],
+    interpreters: Set[String]
+)
 
 /** The interpreter configuration the Docker Compose stack installs in the Zeppelin container. */
 final case class InterpreterConfig(settings: List[InterpreterSetting]) {
@@ -50,9 +57,18 @@ object InterpreterConfig {
     InterpreterSetting(
       name = fields.get("name").flatMap(_.strOpt).getOrElse(key),
       group = fields.get("group").flatMap(_.strOpt).getOrElse(key),
-      properties = readProperties(fields.get("properties"))
+      properties = readProperties(fields.get("properties")),
+      interpreters = readInterpreterNames(fields.get("interpreterGroup"))
     )
   }
+
+  private def readInterpreterNames(node: Option[ujson.Value]): Set[String] =
+    node
+      .flatMap(_.arrOpt)
+      .toList
+      .flatten
+      .flatMap(_.objOpt.flatMap(_.get("name")).flatMap(_.strOpt))
+      .toSet
 
   private def readProperties(node: Option[ujson.Value]): Map[String, String] =
     node.flatMap(_.objOpt).fold(Map.empty[String, String]) { properties =>

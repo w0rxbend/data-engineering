@@ -24,8 +24,10 @@ object Main {
     args.headOption.getOrElse("all") match {
       case "seed"  => seed()
       case "check" => check()
-      case "all"   => check(); seed()
-      case other   => throw new IllegalArgumentException(s"unknown mode '$other'; expected seed, check or all")
+      case "all"   =>
+        check()
+        seed()
+      case other => throw new IllegalArgumentException(s"unknown mode '$other'; expected seed, check or all")
     }
 
   /** Creates the lakehouse schema and tables and loads the generated orders into them. */
@@ -52,17 +54,22 @@ object Main {
     )
     println(s"Configured interpreter settings: ${config.names.toList.sorted.mkString(", ")}")
 
-    NotebookLibrary.fileNames.foreach { fileName =>
-      NotebookLibrary.notebook(fileName) match {
-        case Left(failure) => throw new IllegalStateException(s"notebook '$fileName' is unusable: $failure")
-        case Right(note)   =>
-          val problems = NotebookCheck.problems(fileName, note, config)
-          val verdict  = if (problems.isEmpty) "ok" else problems.mkString("\n  - ", "\n  - ", "")
-          println(
-            s"${note.name}: ${note.paragraphs.size} paragraphs, " +
-              s"interpreters ${note.requiredInterpreterGroups.mkString(", ")} -> $verdict"
-          )
-      }
+    val checked = NotebookLibrary.fileNames.map { fileName =>
+      val note = NotebookLibrary
+        .notebook(fileName)
+        .fold(failure => throw new IllegalStateException(s"notebook '$fileName' is unusable: $failure"), identity)
+      val problems = NotebookCheck.problems(fileName, note, config)
+      val verdict  = if (problems.isEmpty) "ok" else problems.mkString("\n  - ", "\n  - ", "")
+      println(
+        s"${note.name}: ${note.paragraphs.size} paragraphs, " +
+          s"interpreters ${note.requiredInterpreterGroups.mkString(", ")} -> $verdict"
+      )
+      fileName -> problems
+    }
+
+    val failures = checked.flatMap { case (fileName, problems) => problems.map(problem => s"$fileName: $problem") }
+    if (failures.nonEmpty) {
+      throw new IllegalStateException(failures.mkString("notebook checks failed:\n  - ", "\n  - ", ""))
     }
   }
 }

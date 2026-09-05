@@ -26,4 +26,10 @@ final class MagicSuite extends munit.FunSuite {
     assertEquals(Magic("spark", Some("sql")).render, "%spark.sql")
     assertEquals(Magic("md", None).render, "%md")
   }
+
+  test("empty magic components are rejected") {
+    List("%spark.", "%spark..", "%.sql").foreach { text =>
+      assertEquals(Magic.parse(text), None, text)
+    }
+  }
 }
