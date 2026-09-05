@@ -1,0 +1,6 @@
+# Kafka Connect worker with the Amazon Simple Storage Service (S3) sink plugin
+# baked in. Building it once here means `docker compose up` does not have to
+# download the plugin from Confluent Hub on every start.
+FROM confluentinc/cp-kafka-connect:7.7.1
+
+RUN confluent-hub install --no-prompt confluentinc/kafka-connect-s3:10.5.13

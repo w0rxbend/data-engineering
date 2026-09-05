@@ -1,0 +1,52 @@
+package build.examples.`04-kafka-connect-s3-partitioner`
+
+import mill.*
+import mill.scalalib.*
+import build.*
+
+/**
+ * Example 04: a custom Kafka Connect partitioner, packaged as a plugin jar.
+ *
+ * This is a plain Java module: the artefact it produces is loaded by a Kafka Connect worker, which is a Java process,
+ * so there is no Scala on the classpath at all.
+ */
+object `package` extends BaseJavaModule {
+
+  /**
+   * Confluent "storage common" release whose partitioner API this module extends.
+   *
+   * 11.0.13 is the newest release whose published Maven descriptor pins its parent to a plain version number. Later
+   * releases use a Maven version *range* with a space in it, which the resolver reads as a literal directory name and
+   * fails on.
+   */
+  val confluentStorage = "11.0.13"
+
+  val kafka = "3.6.1"
+
+  /**
+   * Libraries the Kafka Connect worker already has on its plugin classpath.
+   *
+   * They are needed to compile against and to run the tests, but they must not be copied into the plugin jar: two
+   * copies of the same class on one classpath is a classic source of `NoSuchMethodError` at run time.
+   */
+  val providedDeps = Seq(
+    mvn"io.confluent:kafka-connect-storage-partitioner:$confluentStorage",
+    mvn"org.apache.kafka:connect-api:$kafka",
+    mvn"joda-time:joda-time:2.12.7"
+  )
+
+  // The Confluent libraries are not published to Maven Central, so Confluent's own
+  // repository has to be added to the resolver.
+  def repositories = Task(super.repositories() :+ "https://packages.confluent.io/maven/")
+
+  def compileMvnDeps = providedDeps
+
+  // Google's JSON library is the one dependency that really is bundled, so that the
+  // assembled jar also works next to a connector that does not ship it. The record
+  // body arrives as text and has to be parsed to read the partition fields out of it.
+  def mvnDeps = Seq(mvn"com.google.code.gson:gson:2.11.0")
+
+  object test extends JavaTests with TestModule.Junit5 {
+    def mvnDeps = providedDeps ++ Seq(mvn"org.junit.jupiter:junit-jupiter:5.11.3")
+  }
+}

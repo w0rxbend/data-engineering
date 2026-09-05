@@ -1,0 +1,129 @@
+# Example 04: Kafka -> Kafka Connect (S3 sink) -> MinIO, with the custom
+# field-and-time partitioner from this module deciding the object paths.
+#
+# Host ports are confined to the 10400-10499 range so that this stack can run
+# side by side with every other example in this repository.
+name: de-04-partitioner
+
+services:
+  # A single-node Apache Kafka broker in KRaft mode, which means it stores its own
+  # metadata and needs no separate Apache ZooKeeper container.
+  kafka:
+    image: confluentinc/cp-kafka:7.7.1
+    container_name: de-04-kafka
+    hostname: kafka
+    ports:
+      - "10492:10492"
+    environment:
+      CLUSTER_ID: de04partitionerclust
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # INTERNAL is what the other containers use, HOST is what your machine uses.
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,HOST://0.0.0.0:10492
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,HOST://localhost:10492
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "kafka:9092"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 20s
+    networks: [de-04]
+
+  # MinIO speaks the Amazon Simple Storage Service (S3) protocol, so the unmodified
+  # Confluent S3 sink connector can write to it without any AWS account.
+  minio:
+    image: minio/minio:RELEASE.2024-09-13T20-26-02Z
+    container_name: de-04-minio
+    hostname: minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "10490:9000"
+      - "10491:9001"
+    environment:
+      MINIO_ROOT_USER: de04accesskey
+      MINIO_ROOT_PASSWORD: de04secretkey
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    networks: [de-04]
+
+  # Runs once to create the bucket the sink writes into, then exits.
+  minio-setup:
+    image: minio/mc:RELEASE.2024-09-16T17-43-14Z
+    container_name: de-04-minio-setup
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      sh -c "mc alias set local http://minio:9000 de04accesskey de04secretkey &&
+             mc mb --ignore-existing local/orders-lake &&
+             echo 'bucket orders-lake is ready'"
+    networks: [de-04]
+
+  # The Kafka Connect worker. The image adds the S3 sink plugin (see Dockerfile.connect)
+  # and the volume drops this module's assembled jar next to that plugin's own jars,
+  # which is what makes the custom partitioner class visible to it.
+  connect:
+    build:
+      context: .
+      dockerfile: Dockerfile.connect
+    image: de-04-kafka-connect:7.7.1
+    container_name: de-04-connect
+    hostname: connect
+    depends_on:
+      kafka:
+        condition: service_healthy
+      minio-setup:
+        condition: service_completed_successfully
+    ports:
+      - "10483:8083"
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: kafka:9092
+      CONNECT_REST_ADVERTISED_HOST_NAME: connect
+      CONNECT_REST_PORT: 8083
+      CONNECT_GROUP_ID: de-04-connect-cluster
+      CONNECT_CONFIG_STORAGE_TOPIC: de-04-connect-configs
+      CONNECT_OFFSET_STORAGE_TOPIC: de-04-connect-offsets
+      CONNECT_STATUS_STORAGE_TOPIC: de-04-connect-status
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
+      CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.storage.StringConverter
+      CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components
+      # Credentials for MinIO, read by the AWS software development kit inside the sink.
+      AWS_ACCESS_KEY_ID: de04accesskey
+      AWS_SECRET_ACCESS_KEY: de04secretkey
+    volumes:
+      - ../../../out/examples/04-kafka-connect-s3-partitioner/assembly.dest/out.jar:/usr/share/confluent-hub-components/confluentinc-kafka-connect-s3/lib/field-and-time-partitioner.jar:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8083/connectors"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 30s
+    networks: [de-04]
+
+networks:
+  de-04:
+    name: de-04-partitioner
+
+volumes:
+  kafka-data:
+  minio-data:
