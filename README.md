@@ -1,10 +1,15 @@
 # Data engineering by example
 
-Sixteen small but realistic data engineering projects, each one runnable on a
-laptop with two commands, nearly all written in Scala (example 04 is a Kafka
-Connect plugin in Java), and each one built around the same imaginary online
-shop so you can compare the technologies instead of learning a new toy domain
-every time.
+Sixteen realistic data engineering projects, each one runnable on a laptop with two
+commands, built as a Mill monorepo with mixed Scala versions and one Java module:
+
+- **Kafka** family: plain client, Streams, ksqlDB, and CMAK-backed operations
+- **Streaming at scale**: Apache Flink and Apache Spark
+- **Lakehouse + catalogs**: Delta Lake, Apache Trino, Presto, Apache Hive metadata, and
+  object-storage-backed storage
+- **Columnar/data formats**: Apache Parquet, Apache Arrow, and Polars interoperability
+- **Graph + document streams**: Apache HugeGraph and Apache CouchDB CDC
+- **Notebook + query surface**: Apache Zeppelin with Spark + Trino
 
 The repository is meant to be used as reference material: when you need to
 remember how Apache Kafka transactions are set up, how a Delta Lake `MERGE`
@@ -27,10 +32,21 @@ cd data-engineering
 The first `./mill` call downloads Mill itself and then the dependencies, which
 takes a few minutes. After that it is fast.
 
+A short portfolio page with the module map is maintained at
+[examples/README.md](examples/README.md).
+
+There is also a local helper for repetitive commands:
+
+```bash
+scripts/run-example.sh up 09-trino-lakehouse-sql
+scripts/run-example.sh test 09-trino-lakehouse-sql
+scripts/run-example.sh down 09-trino-lakehouse-sql
+```
+
 Every example has its own Docker stack:
 
 ```bash
-docker compose -f examples/01-kafka-clients-exactly-once/docker/docker-compose.yml up -d
+docker compose -f examples/01-kafka-clients-exactly-once/docker/docker-compose.yml up -d --wait
 # ... work through the example's README ...
 docker compose -f examples/01-kafka-clients-exactly-once/docker/docker-compose.yml down -v
 ```
@@ -59,6 +75,9 @@ docker compose -f examples/01-kafka-clients-exactly-once/docker/docker-compose.y
 Each example folder contains a `README.md` with the full walkthrough: what it
 showcases, how it works file by file, the exact commands to run it, what the
 output should look like, experiments to try, and how to clean up.
+
+That `examples/` README also includes a condensed portfolio matrix by use case and
+technology in case you are selecting by target skill, not by example number.
 
 ### Suggested reading orders
 
