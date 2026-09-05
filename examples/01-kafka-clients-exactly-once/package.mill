@@ -36,10 +36,5 @@ object `package` extends BaseScalaModule {
 
   object test extends ScalaTests with MunitTests {
 
-    /**
-     * Both `ScalaTests` and `MunitTests` define `mvnDeps`, so Scala asks which one wins. The answer is MUnit's, which
-     * contributes the test framework itself.
-     */
-    override def mvnDeps = super[MunitTests].mvnDeps()
   }
 }
