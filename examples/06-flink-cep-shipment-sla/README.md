@@ -49,7 +49,7 @@ deadline is the only way to notice an absence.
 The code is split so that every business decision is a plain function you can call from a test, and
 the Flink-specific classes contain nothing but wiring.
 
-### The pure core — `src/de/flink/cep/sla/core/`
+### The engine-agnostic core — `src/de/flink/cep/sla/core/` (only the CEP patterns and the tuple conversions touch Flink)
 
 | File | What it holds |
 | --- | --- |

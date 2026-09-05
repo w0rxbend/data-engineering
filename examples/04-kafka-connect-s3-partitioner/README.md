@@ -4,8 +4,8 @@ This example builds a **plugin** for Kafka Connect: a small Java library that de
 *which folder* every record ends up in when it is archived to object storage. Instead of
 the usual date-only layout it writes values taken from the record itself into the path
 first, so an archive of online-shop orders is laid out as
-`channel=web/shipping.country=DE/year=2026/month=09/day=04/` rather than only
-`year=2026/month=09/day=04/`.
+`channel=web/shipping.country=DE/year=YYYY/month=MM/day=DD/` rather than only
+`year=YYYY/month=MM/day=DD/`.
 
 The example is a migration of [Can Elmas' `kafka-connect-field-and-time-partitioner`][origin]
 into this repository's Mill build, with the original Apache License 2.0 and attribution kept
@@ -30,7 +30,7 @@ Some words are used constantly below, so here is what each one means.
   partitioner in this example is the custom part; the converter and the sink itself are stock
   Confluent components.
 - **Amazon Simple Storage Service (S3)** is object storage: a flat store of keys and blobs
-  where a key like `raw/orders/year=2026/…/part.json` merely *looks* like a folder path.
+  where a key like `raw/orders/year=YYYY/…/part.json` merely *looks* like a folder path.
   **MinIO** is an open-source server that speaks the same protocol, which is why the stack
   below needs no cloud account.
 - **Hive-style partitioning** is the convention of encoding a column into a directory name as
@@ -182,9 +182,12 @@ docker run --rm --network de-04-partitioner --entrypoint sh \
 The two objects carry the channel and the country in their key, ahead of the date:
 
 ```
-raw/orders/channel=mobile/shipping.country=PL/year=2026/month=09/day=04/orders+0+0000000002.json
-raw/orders/channel=web/shipping.country=DE/year=2026/month=09/day=04/orders+0+0000000000.json
+raw/orders/channel=mobile/shipping.country=PL/year=YYYY/month=MM/day=DD/orders+0+0000000002.json
+raw/orders/channel=web/shipping.country=DE/year=YYYY/month=MM/day=DD/orders+0+0000000000.json
 ```
+
+`YYYY/MM/DD` is today's date in UTC, because `timestamp.extractor` is `Record` and the
+console producer stamps each record with the current time.
 
 The same listing is visible in the MinIO console at <http://localhost:10491>.
 

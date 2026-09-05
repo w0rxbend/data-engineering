@@ -1,9 +1,10 @@
 # Data engineering by example
 
 Sixteen small but realistic data engineering projects, each one runnable on a
-laptop with two commands, each one written in Scala, and each one built around
-the same imaginary online shop so you can compare the technologies instead of
-learning a new toy domain every time.
+laptop with two commands, nearly all written in Scala (example 04 is a Kafka
+Connect plugin in Java), and each one built around the same imaginary online
+shop so you can compare the technologies instead of learning a new toy domain
+every time.
 
 The repository is meant to be used as reference material: when you need to
 remember how Apache Kafka transactions are set up, how a Delta Lake `MERGE`
@@ -19,8 +20,8 @@ installed except a Java Development Kit (JDK) and Docker.
 git clone git@github.com:w0rxbend/data-engineering.git
 cd data-engineering
 
-./mill __.test                                   # compile and test every module
-./mill examples.01-kafka-clients-exactly-once.run # run one example (see its README first)
+./mill __.test                                  # compile and test every module
+./mill examples.11-parquet-arrow-toolkit.run    # run one example end to end; needs no Docker
 ```
 
 The first `./mill` call downloads Mill itself and then the dependencies, which

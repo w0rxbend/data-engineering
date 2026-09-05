@@ -179,11 +179,19 @@ manually.
 It prints `Topology started.` and then, every ten seconds, the contents of the state store — empty
 at first.
 
-**4. In a second terminal, produce traffic.**
+**4. In a second terminal, produce traffic.** Mill runs one task at a time — a second `./mill`
+command started while step 3 is still running waits for the workspace lock instead of doing
+anything. Build a jar once and run the seeder from that jar, which does not take the lock:
 
 ```bash
-./mill examples.02-kafka-streams-fraud.runMain de.kafkastreams.fraud.SeedProducer 400
+./mill examples.02-kafka-streams-fraud.assembly
+java -cp out/examples/02-kafka-streams-fraud/assembly.dest/out.jar \
+  de.kafkastreams.fraud.SeedProducer 400
 ```
+
+(If you would rather not build a jar, stop the detector from step 3, run
+`./mill examples.02-kafka-streams-fraud.runMain de.kafkastreams.fraud.SeedProducer 400`, and start
+the detector again afterwards — it picks up the traffic from the topic.)
 
 Every twenty rounds it logs `injecting a card-testing burst from cust-probe-01`.
 
