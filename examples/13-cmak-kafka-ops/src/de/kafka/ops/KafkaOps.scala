@@ -116,21 +116,35 @@ final class KafkaOps(admin: Admin) extends AutoCloseable {
    * The two reads happen a few milliseconds apart, so the result is a snapshot of a moving target - which is exactly
    * what every lag dashboard shows, and why `ConsumerLag` clamps a negative difference to zero.
    */
-  def groupLag(group: String): GroupLag = {
+  def groupLag(group: String, topics: List[String]): GroupLag = {
     val committed: Map[TopicPartition, OffsetAndMetadata] =
       admin.listConsumerGroupOffsets(group).partitionsToOffsetAndMetadata().get().asScala.toMap
 
-    val endOffsetRequest = committed.keys.map(tp => tp -> OffsetSpec.latest()).toMap
+    // A never-committed partition is absent from the Admin API's offset map. Enumerate
+    // the requested topics independently so those partitions become `None` rather
+    // than disappearing from the lag report altogether.
+    val partitions = admin
+      .describeTopics(topics.asJava)
+      .allTopicNames()
+      .get()
+      .asScala
+      .toList
+      .flatMap { case (topic, description) =>
+        description.partitions().asScala.map(info => new TopicPartition(topic, info.partition()))
+      }
+
+    val endOffsetRequest = partitions.map(tp => tp -> OffsetSpec.latest()).toMap
     val endOffsets       = admin.listOffsets(endOffsetRequest.asJava).all().get().asScala
 
-    val offsets = committed.toList.map { case (tp, offsetAndMetadata) =>
-      PartitionOffsets(
-        ref = PartitionRef(tp.topic, tp.partition),
-        endOffset = endOffsets.get(tp).map(_.offset).getOrElse(0L),
-        committedOffset = Option(offsetAndMetadata).map(_.offset)
-      )
-    }
-    ConsumerLag.forGroup(group, offsets)
+    val partitionRefs   = partitions.map(tp => tp -> PartitionRef(tp.topic, tp.partition)).toMap
+    val endOffsetsByRef = endOffsets.toList.map { case (partition, result) =>
+      partitionRefs(partition) -> result.offset()
+    }.toMap
+    val committedByRef = committed.toList.flatMap { case (partition, offset) =>
+      partitionRefs.get(partition).map(_ -> offset.offset())
+    }.toMap
+
+    ConsumerLag.fromClusterSnapshot(group, endOffsetsByRef, committedByRef)
   }
 
   /**

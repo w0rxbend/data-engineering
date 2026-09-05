@@ -60,6 +60,8 @@ These four files contain no Kafka class at all. They take numbers and give back 
   has committed. The subtraction is trivial; the two edge cases are not. A group that has never committed is reported
   as behind by the whole partition, and a committed offset that appears to be *ahead* of the log end - which happens
   because the two numbers are read a few milliseconds apart - is clamped to zero instead of reported as negative lag.
+  The same file selects the accepted prefix of a consumer poll and calculates the exact next offset for each partition,
+  so a truncated multi-partition poll can be tested without a broker.
 - **`Replication.scala`** - two things. `PartitionReplicaState` and `ReplicationHealth` answer "is this partition
   still safe": under-replicated (a copy has fallen behind), offline (no copy can lead), or led by a replica that is not
   its preferred leader. `ReassignmentPlanner` decides where copies *should* live, mirroring the round-robin-with-shift
@@ -76,10 +78,15 @@ These four files contain no Kafka class at all. They take numbers and give back 
   useful to do in between. Two choices worth noting: `incrementalAlterConfigs` is used rather than the older
   `alterConfigs`, which replaced a topic's *entire* configuration and silently reset anything the caller forgot to
   repeat; and `createMissingTopics` never touches a topic that already exists, because changing a live topic's
-  partition count re-routes keys to different partitions.
+  partition count re-routes keys to different partitions. Its lag query enumerates every partition of the requested
+  topic independently: Kafka omits never-committed partitions from a group's offset map, but an operations report must
+  show them with their full log-end lag rather than make them disappear.
 - **`PipelineTraffic.scala`** - writes 500 orders from the shared `DataGenerator` and then reads 120 of them back with
-  a consumer group that commits and leaves. Stopping early is deliberate: a console full of empty topics teaches
-  nothing, and lag is only interesting once a group has committed somewhere in the middle.
+  a consumer group that commits and leaves. Every producer [`Future`](https://kafka.apache.org/39/javadoc/org/apache/kafka/clients/producer/KafkaProducer.html#send(org.apache.kafka.clients.producer.ProducerRecord))
+  is awaited, so “500 produced” means 500 broker
+  acknowledgements; `flush()` alone would also complete failed sends without surfacing their exceptions. The consumer
+  commits explicit offsets for only the records it accepts, because a final poll may return more than its 120-record
+  limit. Stopping early is deliberate: lag is only interesting once a group has committed in the middle.
 - **`Main.scala`** - the seven steps, in order, each printing what it found before it changes anything.
 
 ### The non-obvious decision in the reassignment planner
@@ -157,8 +164,10 @@ It prints seven sections. Abbreviated, the output looks like this:
     broker 3 holds 12 partition copy/copies
 ```
 
-A second group named `KMOffsetCache-<something>` also appears in section 4. That is CMAK's own consumer, which it uses
-to read the internal offsets topic; it is a real part of running a console and is left visible rather than filtered out.
+CMAK may add a group named `KMOffsetCache-<something>` to the group-ID list in section 4. That is CMAK's own consumer,
+which it uses to read the internal offsets topic. The detailed lag table deliberately remains scoped to
+`shop.orders.reporting` and all six `shop.orders` partitions; comparing an unrelated internal group against the order
+topic would not be meaningful.
 
 Run it again and the numbers change: the topics already exist, the group falls further behind because more orders were
 produced, and the reassignment plan is empty because the cluster is already balanced.
@@ -186,8 +195,9 @@ back with `docker start de-13-kafka-3`, wait half a minute, and run again - the 
 
 **Take it one broker further.** Stop a second broker and run the tour again. Now only one in-sync replica is left,
 `min.insync.replicas=2` can no longer be met, and the producer in step 3 fails rather than writing to a partition it
-cannot make durable. That is the setting doing its job: the pipeline stops rather than quietly accepting data it might
-lose.
+cannot make durable. The example waits on every send result, so this is an observed command failure rather than a
+success message followed by a hidden callback error. Restart either broker and re-run; the deterministic topic setup is
+idempotent and the next batch resumes as a new batch (it does not retry the failed command automatically).
 
 **Change a topic's shape from the console and read it back from code.** In CMAK, use *Topic -> shop.payments -> Update
 Config* to set `retention.ms` to something small, then run the example and watch section 5 read your value before

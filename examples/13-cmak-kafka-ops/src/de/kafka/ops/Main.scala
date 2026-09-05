@@ -84,7 +84,7 @@ object Main {
         if (groups.isEmpty) { "none" }
         else { groups.mkString(", ") }
       }")
-    groups.foreach(group => println(Reports.groupLag(ops.groupLag(group))))
+    println(Reports.groupLag(ops.groupLag(LagGroup, List(OrdersTopic))))
     println()
   }
 

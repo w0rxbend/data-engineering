@@ -60,4 +60,31 @@ final class ConsumerLagSuite extends munit.FunSuite {
     )
     assertEquals(group.uncommittedPartitions.map(_.ref), List(ordersOne))
   }
+
+  test("a cluster snapshot retains partitions Kafka omitted from the committed-offset map") {
+    val group = ConsumerLag.fromClusterSnapshot(
+      "shop.orders.reporting",
+      endOffsets = Map(ordersZero -> 20L, ordersOne -> 30L),
+      committedOffsets = Map(ordersZero -> 12L)
+    )
+
+    assertEquals(group.partitions.map(_.ref), List(ordersZero, ordersOne))
+    assertEquals(group.partitions.map(_.committedOffset), List(Some(12L), None))
+    assertEquals(group.totalLag, 38L)
+  }
+
+  test("a truncated multi-partition poll commits only the records inside the limit") {
+    val selection = PollSelection.upTo(
+      List(
+        PolledOffset(ordersZero, 10L),
+        PolledOffset(ordersZero, 11L),
+        PolledOffset(ordersOne, 20L),
+        PolledOffset(ordersOne, 21L)
+      ),
+      recordLimit = 3
+    )
+
+    assertEquals(selection.recordsAccepted, 3)
+    assertEquals(selection.nextOffsets, Map(ordersZero -> 12L, ordersOne -> 21L))
+  }
 }

@@ -47,6 +47,27 @@ final case class GroupLag(group: String, partitions: List[PartitionLag]) {
   def uncommittedPartitions: List[PartitionLag] = partitions.filter(_.committedOffset.isEmpty)
 }
 
+/** The position of one record returned by a consumer poll, without a Kafka client type in the decision logic. */
+final case class PolledOffset(ref: PartitionRef, offset: Long)
+
+/** The accepted part of a poll and the exclusive offsets that make precisely that part durable. */
+final case class PollSelection(recordsAccepted: Int, nextOffsets: Map[PartitionRef, Long])
+
+object PollSelection {
+
+  /**
+   * Accepts no more than `recordLimit` positions and retains the next offset of the last accepted record per partition.
+   */
+  def upTo(records: IterableOnce[PolledOffset], recordLimit: Int): PollSelection = {
+    require(recordLimit >= 0, "record limit cannot be negative")
+    val accepted = records.iterator.take(recordLimit).toList
+    val offsets  = accepted.foldLeft(Map.empty[PartitionRef, Long]) { (current, record) =>
+      current.updated(record.ref, record.offset + 1L)
+    }
+    PollSelection(accepted.size, offsets)
+  }
+}
+
 /**
  * Turns raw offsets into lag.
  *
@@ -54,6 +75,24 @@ final case class GroupLag(group: String, partitions: List[PartitionLag]) {
  * it numbers, and the code that fetches those numbers from a broker lives in `KafkaOps`.
  */
 object ConsumerLag {
+
+  /**
+   * Builds a group view from one cluster snapshot.
+   *
+   * End offsets enumerate the partitions in the report. Committed offsets deliberately do not: Kafka omits a partition
+   * from that map until the group first commits it, and that partition must still appear as uncommitted.
+   */
+  def fromClusterSnapshot(
+      group: String,
+      endOffsets: Map[PartitionRef, Long],
+      committedOffsets: Map[PartitionRef, Long]
+  ): GroupLag =
+    forGroup(
+      group,
+      endOffsets.toList.map { case (ref, endOffset) =>
+        PartitionOffsets(ref, endOffset, committedOffsets.get(ref))
+      }
+    )
 
   /**
    * Lag for one partition.
