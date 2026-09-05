@@ -18,24 +18,24 @@ object `package` extends BaseScalaModule {
   def moduleDeps = Seq(build.common(Versions.scala3))
 
   def mvnDeps = Seq(
-    mvn"org.apache.kafka:kafka-streams:${Versions02.kafka}",
-    mvn"org.apache.kafka:kafka-clients:${Versions02.kafka}",
-    mvn"com.lihaoyi::ujson:${Versions02.upickle}",
-    mvn"org.slf4j:slf4j-simple:${Versions02.slf4j}"
+    mvn"org.apache.kafka:kafka-streams:${ExampleVersions.kafka}",
+    mvn"org.apache.kafka:kafka-clients:${ExampleVersions.kafka}",
+    mvn"com.lihaoyi::ujson:${ExampleVersions.upickle}",
+    mvn"org.slf4j:slf4j-simple:${ExampleVersions.slf4j}"
   )
 
   def mainClass = Some("de.kafkastreams.fraud.Main")
 
   object test extends ScalaTests with MunitTests {
     def mvnDeps = super.mvnDeps() ++ Seq(
-      mvn"org.apache.kafka:kafka-streams-test-utils:${Versions02.kafka}"
+      mvn"org.apache.kafka:kafka-streams-test-utils:${ExampleVersions.kafka}"
     )
   }
 }
 
 /** Library versions used only by this example. */
-object Versions02 {
+object ExampleVersions {
   val kafka   = "4.1.0"
   val upickle = "4.4.3"
-  val slf4j   = "2.0.17"
+  val slf4j   = "2.0.19"
 }

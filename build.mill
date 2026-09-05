@@ -43,8 +43,13 @@ trait BaseJavaModule extends JavaModule {
   def javacOptions = Seq("--release", "17", "-Xlint:all")
 }
 
-/** Test module wired to MUnit, the default test framework of this repository. */
-trait MunitTests extends TestModule.Munit {
+/**
+ * Test module wired to MUnit, the default test framework of this repository.
+ *
+ * `ScalafmtModule` is mixed in here so that every test module gets its own `checkFormat` and `reformat` tasks; without
+ * it those tasks exist for main sources only and `./mill __.checkFormat` silently skips the test sources.
+ */
+trait MunitTests extends ScalafmtModule with TestModule.Munit {
   // `munitVersion` rather than a `mvnDeps` entry: Mill adds the MUnit dependency itself from this
   // version, and a `mvnDeps` here would clash with the `mvnDeps` a module declares for its own tests.
   def munitVersion = Versions.munit

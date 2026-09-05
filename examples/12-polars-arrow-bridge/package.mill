@@ -27,9 +27,9 @@ object `package` extends BaseScalaModule {
   def moduleDeps = Seq(build.common(Versions.scala3))
 
   def mvnDeps = Seq(
-    mvn"org.apache.arrow:arrow-vector:19.0.0",
-    mvn"org.apache.arrow:arrow-memory-netty:19.0.0",
-    mvn"org.apache.arrow:arrow-dataset:19.0.0"
+    mvn"org.apache.arrow:arrow-vector:${ExampleVersions.arrow}",
+    mvn"org.apache.arrow:arrow-memory-netty:${ExampleVersions.arrow}",
+    mvn"org.apache.arrow:arrow-dataset:${ExampleVersions.arrow}"
   )
 
   def forkArgs = Seq("--add-opens=java.base/java.nio=ALL-UNNAMED")
@@ -39,4 +39,14 @@ object `package` extends BaseScalaModule {
   object test extends ScalaTests with MunitTests {
     def forkArgs = Seq("--add-opens=java.base/java.nio=ALL-UNNAMED")
   }
+}
+
+/**
+ * Library versions pinned by this example only, so the root build file stays untouched.
+ *
+ * This number is deliberately kept equal to `ExampleVersions.arrow` in example 11, the Arrow primer this example builds
+ * on: a reader who moves from 11 to 12 then sees one Arrow API, not two.
+ */
+object ExampleVersions {
+  val arrow = "19.0.0"
 }

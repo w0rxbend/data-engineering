@@ -40,8 +40,7 @@ object `package` extends BaseScalaModule {
 
   def mainClass = Some("de.presto.hive.Main")
 
-  /** `ScalafmtModule` is mixed in explicitly so that `reformat` also covers the test sources. */
-  object test extends ScalaTests with MunitTests with mill.scalalib.scalafmt.ScalafmtModule {}
+  object test extends ScalaTests with MunitTests {}
 }
 
 /** Library versions pinned by this example only, so the root build file stays untouched. */
@@ -50,5 +49,5 @@ object ExampleVersions {
   val parquet = "1.15.2"
   val hadoop  = "3.4.1"
   val awsSdk  = "2.31.78"
-  val slf4j   = "2.0.17"
+  val slf4j   = "2.0.19"
 }

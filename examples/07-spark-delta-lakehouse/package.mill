@@ -61,7 +61,7 @@ object `package` extends BaseScalaModule {
 
   def mainClass = Some("de.spark.lakehouse.job.Main")
 
-  object test extends ScalaTests with MunitTests with mill.scalalib.scalafmt.ScalafmtModule {
+  object test extends ScalaTests with MunitTests {
 
     /** The tests start a real Apache Spark session in local mode, so they need the same open packages. */
     def forkArgs = SparkJvmArgs.all

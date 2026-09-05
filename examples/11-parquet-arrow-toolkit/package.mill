@@ -57,8 +57,7 @@ object `package` extends BaseScalaModule {
 
   def mainClass = Some("de.parquet.arrow.Main")
 
-  /** `ScalafmtModule` is mixed in explicitly so that `reformat` also covers the test sources. */
-  object test extends ScalaTests with MunitTests with mill.scalalib.scalafmt.ScalafmtModule {
+  object test extends ScalaTests with MunitTests {
     def forkArgs = arrowJvmArgs
   }
 }
@@ -67,8 +66,8 @@ object `package` extends BaseScalaModule {
 object ExampleVersions {
   val parquet = "1.15.2"
   val hadoop  = "3.4.1"
-  val arrow   = "18.3.0"
+  val arrow   = "19.0.0"
   val zstdJni = "1.5.7-16"
   val awsSdk  = "2.31.78"
-  val slf4j   = "2.0.17"
+  val slf4j   = "2.0.19"
 }

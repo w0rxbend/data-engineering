@@ -26,13 +26,21 @@ object `package` extends BaseScalaModule {
   def moduleDeps = Seq(build.common(Versions.scala3))
 
   def mvnDeps = Seq(
-    mvn"org.apache.kafka:kafka-clients:4.3.1",
-    mvn"com.softwaremill.ox::core:1.0.6",
-    mvn"com.lihaoyi::upickle:4.4.3",
-    mvn"org.slf4j:slf4j-simple:2.0.19"
+    mvn"org.apache.kafka:kafka-clients:${ExampleVersions.kafka}",
+    mvn"com.softwaremill.ox::core:${ExampleVersions.ox}",
+    mvn"com.lihaoyi::upickle:${ExampleVersions.upickle}",
+    mvn"org.slf4j:slf4j-simple:${ExampleVersions.slf4j}"
   )
 
   def mainClass = Some("de.kafka.eos.Main")
 
   object test extends ScalaTests with MunitTests {}
+}
+
+/** Library versions used only by this example. */
+object ExampleVersions {
+  val kafka   = "4.3.1"
+  val ox      = "1.0.6"
+  val upickle = "4.4.3"
+  val slf4j   = "2.0.19"
 }

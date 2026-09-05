@@ -18,9 +18,9 @@ object `package` extends BaseScalaModule {
   def mvnDeps = Seq(
     // sttp client4: the HTTP client, used in "direct style" (plain blocking
     // calls, no Future/IO wrapper) through its synchronous backend.
-    mvn"com.softwaremill.sttp.client4::core:4.0.26",
+    mvn"com.softwaremill.sttp.client4::core:${ExampleVersions.sttp}",
     // upickle: reads and writes JSON, the format the ksqlDB REST API speaks.
-    mvn"com.lihaoyi::upickle:4.4.3"
+    mvn"com.lihaoyi::upickle:${ExampleVersions.upickle}"
   )
 
   def resources = Task.Sources(moduleDir / "sql")
@@ -28,4 +28,10 @@ object `package` extends BaseScalaModule {
   def mainClass = Some("de.ksqldb.Main")
 
   object test extends ScalaTests with MunitTests
+}
+
+/** Library versions used only by this example. */
+object ExampleVersions {
+  val sttp    = "4.0.26"
+  val upickle = "4.4.3"
 }

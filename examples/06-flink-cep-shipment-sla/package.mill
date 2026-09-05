@@ -48,7 +48,7 @@ object `package` extends BaseScalaModule {
 
   def mainClass = Some("de.flink.cep.sla.job.Main")
 
-  object test extends ScalaTests with MunitTests with mill.scalalib.scalafmt.ScalafmtModule {
+  object test extends ScalaTests with MunitTests {
 
     /** The pure core needs no Flink at all; the end-to-end suite runs a real job on a local mini cluster. */
     def mvnDeps = super.mvnDeps() ++ Seq(

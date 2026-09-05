@@ -75,14 +75,7 @@ object `package` extends BaseScalaModule {
 
   def mainClass = Some("de.spark.streaming.Main")
 
-  object test extends ScalaTests with MunitTests with mill.scalalib.scalafmt.ScalafmtModule {
-
-    /**
-     * `ScalaTests` and `MunitTests` both define `mvnDeps`, so the test module has to say which one wins. MUnit's is the
-     * one that matters, and it is repeated here rather than inherited through `super` because Mill cannot resolve a
-     * `super` call from a module whose folder name contains a dash.
-     */
-    override def mvnDeps = Seq(mvn"org.scalameta::munit:${Versions.munit}")
+  object test extends ScalaTests with MunitTests {
 
     /** The tests start a real, single-process Spark session, so they need the same JVM flags as the job. */
     def forkArgs = SparkJvm.forkArgs

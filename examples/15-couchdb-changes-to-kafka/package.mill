@@ -30,17 +30,26 @@ object `package` extends BaseScalaModule {
 
   def mvnDeps = Seq(
     // sttp client4 in "direct style": plain blocking calls, no Future or IO wrapper around them.
-    mvn"com.softwaremill.sttp.client4::core:4.0.26",
+    mvn"com.softwaremill.sttp.client4::core:${ExampleVersions.sttp}",
     // upickle parses the JSON that CouchDB speaks; the shared `common` module can only write JSON, not read it.
-    mvn"com.lihaoyi::upickle:4.4.3",
+    mvn"com.lihaoyi::upickle:${ExampleVersions.upickle}",
     // Ox: structured concurrency, the supervised scope and the interruption that makes Ctrl+C shut down cleanly.
-    mvn"com.softwaremill.ox::core:1.0.6",
+    mvn"com.softwaremill.ox::core:${ExampleVersions.ox}",
     // The plain Apache Kafka producer; nothing hides the tombstone (null value) that a compacted topic needs.
-    mvn"org.apache.kafka:kafka-clients:4.3.1",
-    mvn"org.slf4j:slf4j-simple:2.0.19"
+    mvn"org.apache.kafka:kafka-clients:${ExampleVersions.kafka}",
+    mvn"org.slf4j:slf4j-simple:${ExampleVersions.slf4j}"
   )
 
   def mainClass = Some("de.couchdb.cdc.Main")
 
   object test extends ScalaTests with MunitTests
+}
+
+/** Library versions used only by this example. */
+object ExampleVersions {
+  val sttp    = "4.0.26"
+  val upickle = "4.4.3"
+  val ox      = "1.0.6"
+  val kafka   = "4.3.1"
+  val slf4j   = "2.0.19"
 }
