@@ -3,7 +3,7 @@ name: de-build
 services:
   mill:
     # The digest pins Temurin 21.0.11+10; Mill selects each module's own JDK.
-    image: eclipse-temurin:21-jdk@sha256:da9d3a4f7650db39b918fc5a2c3da76556fb8cc8e5f3767cdea0bb409286951a
+    image: eclipse-temurin:25-jdk@sha256:e787e08ef76f4c16866108cd7f9fcd96a68eef3ac6cc76866897d4d02d5a2262
     working_dir: ${DE_WORKSPACE:-/workspace}
     volumes:
       - .:${DE_WORKSPACE:-/workspace}
