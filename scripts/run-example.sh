@@ -5,14 +5,18 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/run-example.sh up <module-dir>
-  scripts/run-example.sh down <module-dir>
-  scripts/run-example.sh logs <module-dir>
-  scripts/run-example.sh test <module-dir>
+  scripts/run-example.sh up <module-dir|number>
+  scripts/run-example.sh down <module-dir|number>
+  scripts/run-example.sh logs <module-dir|number>
+  scripts/run-example.sh test <module-dir|number>
 
 Examples:
   scripts/run-example.sh up 09-trino-lakehouse-sql
   scripts/run-example.sh test 14-hugegraph-fraud-ring
+  scripts/run-example.sh up 09
+
+The module value can be the exact folder name under examples/
+or just its two-digit number.
 
 module-dir is the folder under examples/, for example 09-trino-lakehouse-sql.
 EOF
@@ -24,9 +28,26 @@ if [[ $# -ne 2 ]]; then
 fi
 
 ACTION=$1
-MODULE=$2
+MODULE_OR_NUMBER=$2
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MODULE_DIR="${ROOT_DIR}/examples/${MODULE}"
+MODULE_DIR=""
+
+if [[ -d "${ROOT_DIR}/examples/${MODULE_OR_NUMBER}" ]]; then
+  MODULE_DIR="${ROOT_DIR}/examples/${MODULE_OR_NUMBER}"
+else
+  MATCHES=("${ROOT_DIR}/examples/${MODULE_OR_NUMBER}-"*/)
+  if [[ ${#MATCHES[@]} -eq 1 && -d "${MATCHES[0]}" ]]; then
+    MODULE_DIR="${MATCHES[0]%/}"
+  fi
+fi
+
+if [[ -z "${MODULE_DIR}" ]]; then
+  echo "error: module not found: ${MODULE_OR_NUMBER}" >&2
+  echo "Try using either the directory name (09-trino-lakehouse-sql) or two-digit number (09)." >&2
+  exit 1
+fi
+
+MODULE="$(basename "${MODULE_DIR}")"
 COMPOSE_FILE="${MODULE_DIR}/docker/docker-compose.yml"
 MILL_MODULE="examples.${MODULE}"
 
