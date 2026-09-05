@@ -7,13 +7,14 @@ import scala.util.Random
 /**
  * Produces a stream of plausible online-shop events.
  *
- * The generator is *seeded*, meaning that two runs with the same seed produce
- * exactly the same events. That matters for the examples: a reproducible input
- * stream makes it possible to assert on the output of a Flink or Spark job
- * instead of eyeballing it.
+ * The generator is *seeded*, meaning that two runs with the same seed produce exactly the same events. That matters for
+ * the examples: a reproducible input stream makes it possible to assert on the output of a Flink or Spark job instead
+ * of eyeballing it.
  *
- * @param seed           starting point of the pseudo random number generator
- * @param startEpochMillis timestamp of the first generated event
+ * @param seed
+ *   starting point of the pseudo random number generator
+ * @param startEpochMillis
+ *   timestamp of the first generated event
  */
 final class DataGenerator(seed: Long = 42L, startEpochMillis: Long = 1700000000000L) {
 
@@ -55,8 +56,8 @@ final class DataGenerator(seed: Long = 42L, startEpochMillis: Long = 17000000000
   }
 
   /**
-   * The payment belonging to an order. Roughly one in ten payments is declined,
-   * which gives the fraud- and alerting-oriented examples something to react to.
+   * The payment belonging to an order. Roughly one in ten payments is declined, which gives the fraud- and
+   * alerting-oriented examples something to react to.
    */
   def paymentFor(order: Order): Payment = {
     val status =

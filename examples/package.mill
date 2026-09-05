@@ -3,7 +3,6 @@ package build.examples
 /**
  * Container folder for the runnable examples.
  *
- * Mill only descends into a folder that has a `package.mill` file, so this
- * otherwise empty file is what makes `examples/<nn>-<name>/package.mill`
- * visible to the build.
+ * Mill only descends into a folder that has a `package.mill` file, so this otherwise empty file is what makes
+ * `examples/<nn>-<name>/package.mill` visible to the build.
  */

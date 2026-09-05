@@ -1,17 +1,14 @@
 package de.common.domain
 
 /**
- * The shared "ubiquitous language" of this repository: one small online-shop
- * domain that every example reuses.
+ * The shared "ubiquitous language" of this repository: one small online-shop domain that every example reuses.
  *
- * Using one vocabulary everywhere means you can compare technologies instead
- * of re-learning a new toy domain per example: the `Order` that an Apache Kafka
- * producer writes in example 01 is the same `Order` that Apache Spark reads in
- * example 07.
+ * Using one vocabulary everywhere means you can compare technologies instead of re-learning a new toy domain per
+ * example: the `Order` that an Apache Kafka producer writes in example 01 is the same `Order` that Apache Spark reads
+ * in example 07.
  *
- * The code is deliberately written in a Scala dialect that compiles unchanged
- * on Scala 2.12, 2.13 and 3 (plain `case class`es and `sealed trait`s, no
- * `enum`, no significant indentation).
+ * The code is deliberately written in a Scala dialect that compiles unchanged on Scala 2.12, 2.13 and 3 (plain
+ * `case class`es and `sealed trait`s, no `enum`, no significant indentation).
  */
 final case class CustomerId(value: String) extends AnyVal
 
@@ -43,10 +40,9 @@ final case class OrderLine(sku: Sku, quantity: Int, unitPrice: Money) {
 /**
  * A customer order.
  *
- * @param placedAtEpochMillis wall-clock time the order was accepted, in
- *                            milliseconds since 1970-01-01 UTC. Milliseconds
- *                            since the epoch is the timestamp format every
- *                            engine in this repository understands natively.
+ * @param placedAtEpochMillis
+ *   wall-clock time the order was accepted, in milliseconds since 1970-01-01 UTC. Milliseconds since the epoch is the
+ *   timestamp format every engine in this repository understands natively.
  */
 final case class Order(
     id: OrderId,
@@ -84,9 +80,9 @@ final case class Payment(
 sealed trait ShipmentStatus extends Product with Serializable
 
 object ShipmentStatus {
-  case object Created   extends ShipmentStatus
+  case object Created    extends ShipmentStatus
   case object Dispatched extends ShipmentStatus
-  case object Delivered extends ShipmentStatus
+  case object Delivered  extends ShipmentStatus
 
   val all: List[ShipmentStatus] = List(Created, Dispatched, Delivered)
 

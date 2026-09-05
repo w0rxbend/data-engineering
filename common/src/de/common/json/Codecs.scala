@@ -5,8 +5,8 @@ import de.common.domain._
 /**
  * Renders the shared domain model as JSON.
  *
- * Every example that publishes domain events to Apache Kafka uses these
- * functions, so all examples agree byte-for-byte on the message layout.
+ * Every example that publishes domain events to Apache Kafka uses these functions, so all examples agree byte-for-byte
+ * on the message layout.
  */
 object Codecs {
 

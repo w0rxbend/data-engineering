@@ -7,11 +7,10 @@ import build.*
 /**
  * Shared, dependency-light domain model for every example in this repository.
  *
- * It is a `Cross` module, which means Mill builds one copy per Scala version
- * listed in `Versions.allScala`. An example that must run on Scala 2.12
- * (Apache Flink) and one that must run on Scala 3 therefore share the exact
- * same domain vocabulary without either of them compromising on its Scala
- * version. Refer to a specific build with `build.common("3.3.8")`.
+ * It is a `Cross` module, which means Mill builds one copy per Scala version listed in `Versions.allScala`. An example
+ * that must run on Scala 2.12 (Apache Flink) and one that must run on Scala 3 therefore share the exact same domain
+ * vocabulary without either of them compromising on its Scala version. Refer to a specific build with
+ * `build.common("3.3.8")`.
  */
 object `package` extends Cross[CommonModule](Versions.allScala)
 
