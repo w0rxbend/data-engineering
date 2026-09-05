@@ -1,6 +1,8 @@
 package de.hugegraph.fraud
 
 import de.hugegraph.fraud.RingDetection.{FraudRing, Path}
+import de.hugegraph.fraud.BackendCheck.{Failed, Passed}
+import de.hugegraph.fraud.PropertyGraph.{Edge, Graph, Vertex}
 
 /** Tests for the console rendering, so that a change to the output is a deliberate change. */
 class ReportSuite extends munit.FunSuite {
@@ -57,5 +59,52 @@ class ReportSuite extends munit.FunSuite {
     val rows = List(ujson.read("""{"id": "card-hot", "degree": 7}"""))
 
     assertEquals(Report.serverDegrees(rows), Report.degrees(List(("card-hot", 7))))
+  }
+
+  private val verificationGraph = Graph(
+    vertices = List(Vertex("customer", "a", Map.empty), Vertex("customer", "b", Map.empty)),
+    edges = List(Edge("related", "a", "customer", "b", "customer", Map.empty))
+  )
+
+  test("backend label counts are matched against the local graph") {
+    val checks = BackendVerification.graphCounts(
+      verificationGraph,
+      vertexRows = List(ujson.Obj("customer" -> 2)),
+      edgeRows = List(ujson.Obj("related" -> 1))
+    )
+    assert(checks.forall(_.isInstanceOf[Passed]), checks.map(_.render).mkString("\n"))
+  }
+
+  test("a partial backend load is reported as a mismatch") {
+    val checks = BackendVerification.graphCounts(
+      verificationGraph,
+      vertexRows = List(ujson.Obj("customer" -> 1)),
+      edgeRows = List(ujson.Obj("related" -> 1))
+    )
+    assert(checks.exists(_.isInstanceOf[Failed]), checks.map(_.render).mkString("\n"))
+  }
+
+  test("equal totals with different labels are reported as a mismatch") {
+    val checks = BackendVerification.graphCounts(
+      verificationGraph,
+      vertexRows = List(ujson.Obj("customer" -> 1, "order" -> 1)),
+      edgeRows = List(ujson.Obj("related" -> 1))
+    )
+
+    val rendered = checks.map(_.render).mkString("\n")
+    assert(checks.head.isInstanceOf[Failed], rendered)
+    assert(rendered.contains("customer=1, order=1"), rendered)
+    assert(rendered.contains("customer=2"), rendered)
+  }
+
+  test("shortest paths compare endpoints and hop count, not one arbitrary tied route") {
+    val local  = Some(Path(List("a", "local-middle", "b")))
+    val remote = List("a", "server-middle", "b")
+    assert(BackendVerification.shortestPath(local, remote).isInstanceOf[Passed])
+  }
+
+  test("a backend path outside the local hop count is reported") {
+    val check = BackendVerification.shortestPath(Some(Path(List("a", "b"))), List("a", "x", "b"))
+    assert(check.isInstanceOf[Failed], check.render)
   }
 }

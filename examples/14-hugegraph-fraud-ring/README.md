@@ -2,7 +2,9 @@
 
 A **graph database** stores data as things and the connections between them, and it is built so that following a
 connection is cheap no matter how many things there are. [Apache HugeGraph](https://hugegraph.apache.org) is one:
-an open-source, distributed graph database that speaks **Gremlin**, the query language of Apache TinkerPop.
+an open-source graph database that speaks **Gremlin**, the query language of Apache TinkerPop. HugeGraph supports
+distributed backends, but this local Compose exercise deliberately runs one server with its embedded RocksDB backend;
+it demonstrates the graph model and server-side traversals, not distributed-storage availability or scale.
 
 This example loads the online shop of this repository into HugeGraph as a graph - customers, orders, payment cards,
 devices and shipping addresses - and then asks the question that is nearly impossible to write in SQL and almost
@@ -94,7 +96,7 @@ every "related accounts" query in this example uses.
 | `GremlinQueries.scala` | The same questions written as Gremlin, built as strings with parameters kept out of the script. |
 | `Payloads.scala` | The JSON bodies of every HugeGraph endpoint used, rendered from the values above. |
 | `HugeGraphClient.scala` | The only file that performs input/output: sttp requests against the HugeGraph HTTP interface. |
-| `Report.scala` | Turns results into console lines. |
+| `Report.scala` | Turns results into console lines and reconciles server counts/path shape with the independent in-memory reference, without pretending the local calculation is a database result. |
 | `Main.scala` | Wiring. Prints the in-memory answer, then the server's answer to the same questions. |
 
 ### Declaring the schema
@@ -161,11 +163,18 @@ for its own sake:
 - Running both against the same data is a check on the modelling. When the program prints the same six-hop path
   twice, once from a `Map[String, Set[String]]` and once from HugeGraph, the schema and the queries agree.
 
+The program now makes that distinction executable. Its **Backend verification** section compares the counts returned
+by HugeGraph's Gremlin endpoint with the generated graph label by label, then compares the built-in shortest-path
+result by endpoints and hop count. It prints `PASS` or `FAIL`; an in-memory result alone is never labelled as proof that
+the server loaded the data. Intermediate vertices are not compared because two equally short routes are both correct.
+
 ### Two things worth knowing about the plumbing
 
 Both were found by running this, and both are commented in the code:
 
-- **The HTTP client is pinned to HTTP/1.1.** Java's built-in HTTP client offers to upgrade every connection to
+- **The HTTP client is pinned to HTTP/1.1.** The stack pins HugeGraph 1.5.0, whose
+  [archived REST documentation](https://hugegraph.apache.org/versions/1.5/docs/clients/restful-api/) uses the legacy
+  `/graphs/{graph}` paths implemented here. Java's built-in HTTP client offers to upgrade every connection to
   HTTP/2. HugeGraph 1.5.0 accepts that offer on `/gremlin` and then never answers, until its own query timeout fires
   and reports a `TimeoutException` - which looks exactly like a slow query and is not one. Every other endpoint is
   unaffected, which makes it a confusing failure to meet unprepared.
@@ -203,6 +212,12 @@ Fraud rings found in memory
 ---------------------------
  5 accounts  cust-0201, cust-0202, cust-0203, cust-0301, cust-0302   shared: address-drop-1, device-farm-1
  4 accounts  cust-0101, cust-0102, cust-0103, cust-0104              shared: card-stolen-1
+
+Backend verification (HugeGraph versus in-memory reference)
+------------------------------------------------------------
+PASS  HugeGraph vertex counts by label match the in-memory graph: {...}
+PASS  HugeGraph edge counts by label match the in-memory graph: {...}
+PASS  HugeGraph shortest path agrees with the in-memory model: 6 hops (...)
 
 Artefacts shared by several accounts (Gremlin)
 ----------------------------------------------
@@ -258,7 +273,9 @@ Hubble draws the result, and a ring looks like what it is: a hub with several ac
   meeting once.
 - **Kill the database mid-run.** `docker compose ... stop hugegraph` while the program is loading. The client throws
   a `HugeGraphException` naming the endpoint and the status; the in-memory half of the report has already printed,
-  because it never needed the server.
+  because it never needed the server. Restart it with `docker compose ... start hugegraph` and run the program again:
+  customized vertex identifiers and `SINGLE` edges make the retry repair a partial load. The backend count checks then
+  confirm what the server actually contains; the earlier local calculation is only the expected value.
 
 ## Clean up
 

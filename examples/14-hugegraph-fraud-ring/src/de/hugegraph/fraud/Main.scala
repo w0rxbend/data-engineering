@@ -79,6 +79,14 @@ object Main {
     val schemaReport = client.createSchema(FraudSchema.shop)
     val loadReport   = client.load(graph)
 
+    val vertexCounts = client.gremlin(GremlinQueries.vertexCountByLabel)
+    val edgeCounts   = client.gremlin(GremlinQueries.edgeCountByLabel)
+    val serverPath   = client.shortestPath(from, to, maxDepth = 8)
+    val localPath    = RingDetection.shortestPath(graph, from, to, maxDepth = 8)
+    val verification =
+      BackendVerification.graphCounts(graph, vertexCounts, edgeCounts) :+
+        BackendVerification.shortestPath(localPath, serverPath)
+
     val sharedArtefactLines = Vertices.sharedArtefacts.flatMap { label =>
       Report.sharedArtefacts(client.gremlin(GremlinQueries.sharedArtefacts(label)))
     }
@@ -90,11 +98,12 @@ object Main {
         s"loaded: ${loadReport.vertices} vertices, ${loadReport.edges} edges"
       )
     ) ++
+      Report.section("Backend verification (HugeGraph versus in-memory reference)", verification.map(_.render)) ++
       Report.section(
         "Vertices per label (Gremlin)",
-        Report.counts(client.gremlin(GremlinQueries.vertexCountByLabel))
+        Report.counts(vertexCounts)
       ) ++
-      Report.section("Edges per label (Gremlin)", Report.counts(client.gremlin(GremlinQueries.edgeCountByLabel))) ++
+      Report.section("Edges per label (Gremlin)", Report.counts(edgeCounts)) ++
       Report.section("Artefacts shared by several accounts (Gremlin)", sharedArtefactLines) ++
       Report.section(
         s"Accounts related to $from within 4 hops (Gremlin)",
@@ -110,7 +119,7 @@ object Main {
       ) ++
       Report.section(
         s"Shortest path $from -> $to (built-in shortestpath traverser)",
-        Report.serverPath(client.shortestPath(from, to, maxDepth = 8))
+        Report.serverPath(serverPath)
       )
   }
 
