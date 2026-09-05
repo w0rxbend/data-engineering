@@ -1,177 +1,144 @@
 # Data engineering by example
 
-Sixteen realistic data engineering projects, each one runnable on a laptop with two
-commands, built as a Mill monorepo with mixed Scala versions and one Java module:
+Sixteen runnable reference projects covering Kafka, Flink, Spark, lakehouse storage,
+federated SQL, columnar formats, graph analytics, change data capture, and notebooks.
+They share one [Mill](https://mill-build.org/) build and one small online-shop
+domain, while keeping the Scala and Java versions required by each engine.
 
-- **Kafka** family: plain client, Streams, ksqlDB, and CMAK-backed operations
-- **Streaming at scale**: Apache Flink and Apache Spark
-- **Lakehouse + catalogs**: Delta Lake, Apache Trino, Presto, Apache Hive metadata, and
-  object-storage-backed storage
-- **Columnar/data formats**: Apache Parquet, Apache Arrow, and Polars interoperability
-- **Graph + document streams**: Apache HugeGraph and Apache CouchDB CDC
-- **Notebook + query surface**: Apache Zeppelin with Spark + Trino
+This is a learning and reference corpus, not a production platform template. Each
+example has focused tests, an isolated Docker Compose stack, and a README that
+explains the design and the operational trade-offs.
 
-The repository is meant to be used as reference material: when you need to
-remember how Apache Kafka transactions are set up, how a Delta Lake `MERGE`
-is written, or what partition pruning looks like in a query plan, open the
-example, read its README, and run it.
+## Quick start: Docker only
 
-Everything is one [Mill](https://mill-build.org) build. Nothing has to be
-installed except a Java Development Kit (JDK) and Docker.
-
-## Quick start
+The default path needs Git, Docker, and the Docker Compose plugin; it does not need
+a host JDK or a host Mill installation. From the repository root:
 
 ```bash
-git clone git@github.com:w0rxbend/data-engineering.git
-cd data-engineering
+# Show the modules through the pinned Temurin build container.
+scripts/mill-docker.sh resolve examples._
 
-./mill __.test                                  # compile and test every module
-./mill examples.11-parquet-arrow-toolkit.run    # run one example end to end; needs no Docker
+# Run a self-contained example. It writes local Parquet/Arrow output and needs no service stack.
+MILL_DOCKER=1 scripts/run-example.sh run 11
+
+# Run the same repository checks used by CI through the containerized Mill runner.
+MILL_DOCKER=1 scripts/check-repo.sh build
 ```
 
-The first `./mill` call downloads Mill itself and then the dependencies, which
-takes a few minutes. After that it is fast.
+The build container runs as the host user and keeps resolver caches in
+`.docker-cache/`, outside Mill's source inputs. It uses host networking so the JVM
+can reach the `localhost:1NNxx` addresses advertised by the example stacks. On
+Docker Desktop, enable host networking under **Settings → Resources → Network**.
 
-A short portfolio page with the module map is maintained at
-[examples/README.md](examples/README.md).
-
-There is also a local helper for repetitive commands:
+To explore a service-backed example:
 
 ```bash
-scripts/run-example.sh up 09-trino-lakehouse-sql
-scripts/run-example.sh test 09-trino-lakehouse-sql
-scripts/run-example.sh down 09-trino-lakehouse-sql
+MILL_DOCKER=1 scripts/run-example.sh up 01
+MILL_DOCKER=1 scripts/run-example.sh run 01 seed 12
+scripts/run-example.sh status 01
+scripts/run-example.sh down 01       # keeps data volumes
+scripts/run-example.sh reset 01      # explicitly removes data volumes
 ```
 
-Every example has its own Docker stack:
+`scripts/run-example.sh list` prints all 16 module names. Example 04 is a Java
+Kafka Connect plugin: `up` builds its assembly before mounting it into Connect,
+and it deliberately has no `run` command. Example 12 is a batch hand-off to native
+Polars in Python: follow its README's generate → container → verify sequence;
+`up 12` is intentionally refused because there is no long-running service.
 
-```bash
-docker compose -f examples/01-kafka-clients-exactly-once/docker/docker-compose.yml up -d --wait
-# ... work through the example's README ...
-docker compose -f examples/01-kafka-clients-exactly-once/docker/docker-compose.yml down -v
-```
+## Catalogue
 
-## The examples
+| # | Example | Focus | Language / JDK | Run shape | Host ports |
+| --- | --- | --- | --- | --- | --- |
+| 01 | [Exactly-once payment settlement](examples/01-kafka-clients-exactly-once/) | Kafka clients and transactions | Scala 3 / 21 | Compose + CLI | 10180, 10192 |
+| 02 | [Card-testing fraud detection](examples/02-kafka-streams-fraud/) | Kafka Streams, windows, state stores | Scala 3 / 17 | Compose + CLI | 10280, 10292 |
+| 03 | [Operations dashboard in SQL](examples/03-ksqldb-orders/) | ksqlDB push and pull queries | Scala 3 / 17 | Compose + CLI | 10388, 10392 |
+| 04 | [Custom archive partitioner](examples/04-kafka-connect-s3-partitioner/) | Kafka Connect plugin and MinIO | Java / 17 | Assembly + Compose | 10483, 10490–10492 |
+| 05 | [Kafka to object storage](examples/05-flink-kafka-s3sink/) | Flink `FileSink` and checkpoints | Scala 2.12 / 17 | Compose + job | 10581, 10590–10592 |
+| 06 | [Delivery SLA monitoring](examples/06-flink-cep-shipment-sla/) | Flink CEP and event time | Scala 2.12 / 17 | Compose + job | 10680, 10681, 10692 |
+| 07 | [Medallion lakehouse](examples/07-spark-delta-lakehouse/) | Spark and Delta Lake | Scala 2.13 / 17 | Compose + job | 10700, 10701, 10707, 10780, 10781 |
+| 08 | [Streaming into Delta](examples/08-spark-streaming-kafka-delta/) | Structured Streaming, Kafka, Delta | Scala 2.13 / 17 | Compose + job | 10880, 10890–10892 |
+| 09 | [One query over two systems](examples/09-trino-lakehouse-sql/) | Trino, Delta, PostgreSQL | Scala 3 / 17 | Compose + CLI | 10900, 10901, 10932, 10980 |
+| 10 | [Partition pruning made visible](examples/10-presto-hive-analytics/) | PrestoDB, Hive, Parquet | Scala 3 / 17 | Compose + CLI | 11000, 11001, 11032, 11080, 11083 |
+| 11 | [The formats themselves](examples/11-parquet-arrow-toolkit/) | Parquet and Arrow internals | Scala 3 / 17 | Local CLI; optional MinIO | 11100, 11101 |
+| 12 | [Arrow bridge to Polars](examples/12-polars-arrow-bridge/) | Arrow IPC and native Polars | Scala 3 / 17 + Python | Three-step batch | none |
+| 13 | [Operating Kafka](examples/13-cmak-kafka-ops/) | CMAK, `AdminClient`, three brokers | Scala 3 / 17 | Compose + CLI | 11301–11303, 11380, 11381 |
+| 14 | [Finding fraud rings](examples/14-hugegraph-fraud-ring/) | HugeGraph and Gremlin | Scala 3 / 17 | Compose + CLI | 11400, 11401 |
+| 15 | [CouchDB change data capture](examples/15-couchdb-changes-to-kafka/) | `_changes`, checkpoints, Kafka | Scala 3 / 21 | Compose + service | 11580, 11592, 11598 |
+| 16 | [Notebooks over a lakehouse](examples/16-zeppelin-notebooks/) | Zeppelin, Spark, Trino | Scala 3 / 17 | Compose + seed CLI | 11600, 11601, 11640, 11680, 11690 |
 
-| # | Example | Technology | Scala | Host ports |
-|---|---------|-----------|-------|------------|
-| 01 | [Exactly-once payment settlement](examples/01-kafka-clients-exactly-once/) | Apache Kafka producer/consumer, transactions | 3 | 10180, 10192 |
-| 02 | [Card-testing fraud detection](examples/02-kafka-streams-fraud/) | Kafka Streams, windows, state stores | 3 | 10280, 10292 |
-| 03 | [An operations dashboard in SQL](examples/03-ksqldb-orders/) | ksqlDB, push and pull queries | 3 | 10388, 10392 |
-| 04 | [A custom archive partitioner](examples/04-kafka-connect-s3-partitioner/) | Kafka Connect plugin, MinIO | Java 17 | 10483, 10490-10492 |
-| 05 | [Streaming Kafka into object storage](examples/05-flink-kafka-s3sink/) | Apache Flink, `FileSink`, checkpoints | 2.12 | 10581, 10590-10592 |
-| 06 | [Delivery SLA monitoring](examples/06-flink-cep-shipment-sla/) | Flink CEP, event-time patterns | 2.12 | 10680, 10681, 10692 |
-| 07 | [A medallion lakehouse](examples/07-spark-delta-lakehouse/) | Apache Spark, Delta Lake, MinIO | 2.13 | 10700, 10701, 10707, 10780, 10781 |
-| 08 | [Streaming ingestion into Delta](examples/08-spark-streaming-kafka-delta/) | Spark Structured Streaming, Delta | 2.13 | 10880, 10890-10892 |
-| 09 | [One query over two systems](examples/09-trino-lakehouse-sql/) | Trino, Delta and PostgreSQL connectors | 3 | 10900, 10901, 10932, 10980 |
-| 10 | [Partition pruning made visible](examples/10-presto-hive-analytics/) | PrestoDB, Hive-partitioned Parquet | 3 | 11000, 11001, 11032, 11080, 11083 |
-| 11 | [The formats themselves](examples/11-parquet-arrow-toolkit/) | Apache Parquet, Apache Arrow | 3 | 11100, 11101 |
-| 12 | [Scala to Polars without copying](examples/12-polars-arrow-bridge/) | Polars, Arrow inter-process format | 3 | none |
-| 13 | [Operating a Kafka cluster](examples/13-cmak-kafka-ops/) | CMAK, `AdminClient`, three brokers | 3 | 11301-11303, 11380, 11381 |
-| 14 | [Finding fraud rings](examples/14-hugegraph-fraud-ring/) | Apache HugeGraph, Gremlin | 3 | 11400, 11401 |
-| 15 | [Change data capture](examples/15-couchdb-changes-to-kafka/) | Apache CouchDB `_changes`, Kafka | 3 | 11580, 11592, 11598 |
-| 16 | [Notebooks over the lakehouse](examples/16-zeppelin-notebooks/) | Apache Zeppelin, Spark, Trino | 3 | 11600, 11601, 11640, 11680, 11690 |
+The [examples catalogue](examples/README.md) adds learning paths and notes which
+parts are local code, one-shot jobs, or long-running services.
 
-Each example folder contains a `README.md` with the full walkthrough: what it
-showcases, how it works file by file, the exact commands to run it, what the
-output should look like, experiments to try, and how to clean up.
+## Runtime and resource expectations
 
-That `examples/` README also includes a condensed portfolio matrix by use case and
-technology in case you are selecting by target skill, not by example number.
+Mill compiles every module to Java 17 bytecode and normally selects a pinned
+Temurin 17 runtime. Examples 01 and 15 select Temurin 21 at runtime because Ox
+uses virtual threads; their bytecode target remains Java 17. The root build
+container itself uses a pinned Temurin 21 image so it can launch every module,
+while Mill still selects each module's declared runtime.
 
-### Suggested reading orders
+The stacks are designed to be explored **one at a time**. As a practical starting
+point, give Docker 4 CPUs, 8 GiB of memory, and roughly 20 GiB of free disk for
+images and volumes. Spark/Delta, Trino/Presto, and especially Zeppelin can need
+10–12 GiB during startup or larger experiments. Reserved port ranges let stacks
+coexist, but starting all 16 together is not a supported resource target.
 
-* **New to streaming:** 01 → 02 → 03 → 05 → 06 → 08
-* **Building a lakehouse:** 11 → 07 → 09 → 10 → 16
-* **Running the platform:** 13 → 04 → 15
+## Repository shape
 
-## How the repository is organised
-
-```
-build.mill                     versions and the traits every module shares
-common/                        the shared online-shop domain, cross-compiled for Scala 2.12, 2.13 and 3
+```text
+build.mill                     shared versions and module traits
+common/                        cross-built domain, generator, and JSON writer
 examples/<nn>-<name>/
-    package.mill               the module definition
-    src/                       main sources
-    test/src/                  tests, none of which need Docker
-    docker/docker-compose.yml  the stack for this example only
-    README.md                  the walkthrough
+  package.mill                 isolated dependencies and Scala/JVM choice
+  src/                         application and adapter code
+  test/src/                    tests that do not require Compose
+  docker/docker-compose.yml    one example's external services
+  README.md                    runnable walkthrough
+docs/architecture.md           dependency boundaries and delivery semantics
+docs/validation.md             local and CI verification layers
+scripts/check-repo.sh          repository-wide quality entry point
 ```
 
-### One domain everywhere
+`common/` is dependency-light and cross-compiled unchanged for Scala 2.12,
+Scala 2.13, and Scala 3. Engine and connector versions stay inside the example
+that needs them, preventing Spark's or Flink's dependency graph from leaking into
+other modules. See [Architecture](docs/architecture.md) for the actual boundary
+map rather than an abstract framework diagram.
 
-`common/` defines the vocabulary all sixteen examples speak: `Order`,
-`OrderLine`, `Payment`, `Shipment`, `ClickEvent`, `Money`, and a seeded
-`DataGenerator` that produces reproducible events. Two runs with the same seed
-produce byte-identical data, which is what makes the examples testable.
+## Common commands
 
-The module deliberately has no third-party dependencies. It is compiled for
-three Scala versions at once - Apache Flink publishes its Scala API for 2.12
-only, Apache Spark for 2.13, everything else here is Scala 3 - and a shared
-library would have to support all three. For the same reason it carries a
-small hand-written JSON writer instead of a JSON library; examples that also
-have to *parse* JSON pick their own.
+Use `MILL_DOCKER=1` with `scripts/run-example.sh` or
+`scripts/check-repo.sh` to select the Docker Mill runner.
 
-### Three Scala versions, one build
+| Command | Purpose |
+| --- | --- |
+| `scripts/run-example.sh list` | list all example modules |
+| `scripts/run-example.sh config 09` | validate one example's Compose model |
+| `scripts/run-example.sh test 09` | run one module's tests |
+| `scripts/run-example.sh up 09` | start and wait for one service stack |
+| `scripts/run-example.sh down 09` | stop it and preserve volumes |
+| `scripts/run-example.sh reset 09` | stop it and remove volumes |
+| `./mill --no-server -j 2 __.test` | test the complete mixed-version build locally |
+| `./mill mill.scalalib.scalafmt/checkFormatAll` | verify Scala formatting |
+| `scripts/check-repo.sh static` | shell, runner, and all Compose checks |
+| `scripts/check-repo.sh build` | format, compile, and test with bounded Mill concurrency |
+| `scripts/check-repo.sh all` | run both layers |
 
-`build.mill` pins them and defines the shared traits:
+Scalafmt follows the repository's braceful style; Scala 3 modules also compile
+with `-no-indent`. The commands use Mill's documented
+[Scala formatting integration](https://mill-build.org/mill/scalalib/linting.html)
+and Scalafmt's documented [per-path dialects](https://scalameta.org/scalafmt/docs/configuration.html#fileoverride).
 
-* `BaseScalaModule` - Java 17 target, common compiler options, formatting
-* `BaseJavaModule` - the same for the one Java module (example 04)
-* `MunitTests` - the MUnit test framework version
+## Validation and scope
 
-An example that needs a different Scala version simply says so:
-
-```scala
-object `package` extends BaseScalaModule {
-  def scalaVersion = Versions.scala213
-  def moduleDeps = Seq(build.common(Versions.scala213))
-}
-```
-
-## Conventions
-
-**Host ports.** Example `NN` may only publish host ports `1NN00`-`1NN99`.
-Example 03 uses 10300-10399, example 14 uses 11400-11499. Every stack can
-therefore run at the same time without colliding, and a port number tells you
-which example owns it.
-
-**Pinned images.** No Compose file uses the `latest` tag. Every image is
-pinned to a version that was verified to exist and to start.
-
-**Tests never need Docker.** Domain logic is kept apart from the wiring to
-Kafka, Flink or Spark, so `./mill __.test` runs green on a machine with no
-containers at all. The Docker stacks are for running the examples end to end.
-
-**Formatting.** `./mill mill.scalalib.scalafmt/reformatAll` formats
-everything; `checkFormatAll` verifies it.
-
-## Prerequisites
-
-* A JDK. Mill downloads the exact one each module needs (Temurin 17), so any
-  reasonably recent JDK is enough to start it.
-* Docker with the Compose plugin (`docker compose version`).
-* Around 8 GB of free memory for the heavier stacks (07, 08, 09, 16) and
-  roughly 20 GB of disk for images if you run all of them.
-
-## Useful Mill commands
-
-| Command | What it does |
-|---------|--------------|
-| `./mill resolve __` | list every module and task |
-| `./mill examples.07-spark-delta-lakehouse.compile` | compile one module |
-| `./mill __.test` | run every test in the repository |
-| `./mill examples.05-flink-kafka-s3sink.assembly` | build a single runnable jar |
-| `./mill mill.scalalib.scalafmt/reformatAll` | format all sources |
-| `./mill shutdown` | stop the background Mill daemon |
-
-Mill serialises builds behind a single lock, so a second `./mill` command
-started while the first is still running waits its turn. When an example asks
-you to run two programs at once, start the second one from a jar built with
-`assembly`, or wait for the first command to finish.
+Unit tests isolate policy from Kafka, databases, object stores, and query engines.
+Compose parsing checks configuration only; it does not pull or start every image.
+The exact validation layers, recorded results, and commands for deeper smoke
+testing are in [Validation](docs/validation.md).
 
 ## Licence
 
 The Kafka Connect partitioner in example 04 is derived from prior work by Can
-Elmas and keeps its original Apache-2.0 licence and attribution. Everything
-else in this repository is provided as reference material for learning.
+Elmas and retains its Apache-2.0 licence and attribution. Everything else is
+provided as reference material for learning.

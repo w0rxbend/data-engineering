@@ -24,8 +24,10 @@ Some vocabulary first, because three names get used interchangeably in the wild 
 They share an ancestor and most of their SQL surface. A query you write here will usually run unchanged on Trino. The
 differences that actually bite:
 
-- **Connector names.** PrestoDB's Hive connector is `hive-hadoop2`; Trino's is `hive`. The S3 settings are
-  `hive.s3.*` in PrestoDB and `hive.s3.*` or the newer `fs.native-s3.*` in Trino.
+- **Connector names.** PrestoDB's Hive connector is `hive-hadoop2`; Trino's is `hive`. This PrestoDB stack uses
+  `hive.s3.*` settings. Example 09 pins Trino 476 and enables its native client with `fs.native-s3.enabled=true`,
+  then configures `s3.*` properties such as `s3.endpoint`. Use the settings for the pinned engine version:
+  [Trino 476 S3 configuration](https://github.com/trinodb/trino/blob/476/docs/src/main/sphinx/object-storage/file-system-s3.md).
 - **Metastore protocol.** PrestoDB 0.293 speaks the Thrift metastore protocol as it was before Apache Hive 4 renamed
   its methods. Point it at a Hive 4 metastore and every query fails with `Invalid method name: 'get_table'`. That is
   why this stack runs Hive 3.1.3. Trino's client tracks the newer protocol.
@@ -34,8 +36,8 @@ differences that actually bite:
 - **Feature drift.** Trino has moved further on the newer table formats (Apache Iceberg, Delta Lake) and on fault
   tolerant execution; PrestoDB has invested in its native C++ worker, Velox.
 
-Neither is "the real one". If you are choosing today, most of the open-source community energy is on Trino. This
-repository shows PrestoDB precisely so that both names mean something concrete to you.
+This repository includes both engines so you can compare their connectors, configuration, query plans, and
+operational behavior against concrete examples.
 
 ## The use case
 
