@@ -75,6 +75,12 @@ sink task blocks every later record on the topic. Configuration mistakes are tre
 opposite way: an empty `partition.field.name` fails immediately at start-up, where a human is
 watching, rather than silently producing paths with no field in them.
 
+**Field values cannot inject path structure.** Values are UTF-8 percent-encoded before they become
+object-key segments: `retail/eu` becomes `retail%2Feu`, and an empty string becomes `unknown`.
+Without that boundary, ordinary source data containing `/`, `=` or whitespace could create extra
+directories and break the Hive partition schema. Configuration field names are trusted schema
+input; record values are not.
+
 **Confluent's libraries are compiled against but not bundled.** In `package.mill` they sit in
 `compileMvnDeps`, not `mvnDeps`. The Connect worker already has those classes on its plugin
 classpath, and shipping a second copy inside the plugin jar is a classic cause of
@@ -87,7 +93,7 @@ assembled jar also works beside a connector that does not ship it.
 | --- | --- |
 | `partitioner.class` | Must be `com.canelmas.kafka.connect.FieldAndTimeBasedPartitioner`. |
 | `partition.field.name` | Comma-separated record fields to partition by, in path order. A dot addresses a nested field, so `shipping.country` reads `{"shipping":{"country":"DE"}}`. |
-| `partition.field.format.path` | `true` writes `country=DE`, `false` writes a bare `DE`. Defaults to `true`. |
+| `partition.field.format.path` | `true` writes `country=DE`, `false` writes a bare `DE`. Defaults to `true`; any other value fails connector startup. |
 | `path.format`, `partition.duration.ms`, `locale`, `timezone`, `timestamp.extractor` | Inherited unchanged from Confluent's `TimeBasedPartitioner` and used for the time half of the path. |
 
 ## Run it
@@ -107,6 +113,16 @@ which downloads the S3 sink plugin and takes a couple of minutes.
 ```bash
 docker compose -f examples/04-kafka-connect-s3-partitioner/docker/docker-compose.yml up -d --wait
 ```
+
+`--wait` covers the long-running health checks. MinIO bucket creation is a one-shot job, so verify
+it explicitly before registering the connector:
+
+```bash
+docker compose -f examples/04-kafka-connect-s3-partitioner/docker/docker-compose.yml \
+  ps --all minio-setup
+```
+
+Its state must be `Exited (0)`.
 
 Host ports, all inside this example's assigned 10400-10499 range:
 

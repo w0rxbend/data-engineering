@@ -82,6 +82,16 @@ class FieldAndTimeBasedPartitionerTest {
     assertThrows(IllegalArgumentException.class, () -> configured("UTC", ""));
   }
 
+  @Test
+  @DisplayName("rejects a misspelled path-format boolean instead of silently changing the layout")
+  void rejectsInvalidPathFormatBoolean() {
+    final FieldAndTimeBasedPartitioner<String> partitioner = new FieldAndTimeBasedPartitioner<>();
+    final Map<String, Object> settings = connectorSettings("UTC", "channel");
+    settings.put(FieldAndTimeBasedPartitioner.PARTITION_FIELD_FORMAT_PATH_CONFIG, "treu");
+
+    assertThrows(IllegalArgumentException.class, () -> partitioner.configure(settings));
+  }
+
   private static FieldAndTimeBasedPartitioner<String> configured(final String timeZone, final String fieldNames) {
     final FieldAndTimeBasedPartitioner<String> partitioner = new FieldAndTimeBasedPartitioner<>();
     partitioner.configure(connectorSettings(timeZone, fieldNames));

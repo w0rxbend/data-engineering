@@ -62,6 +62,22 @@ class PartitionFieldExtractorTest {
   }
 
   @Test
+  @DisplayName("encodes path syntax and Unicode inside field values")
+  void encodesUnsafePathValues() {
+    final PartitionFieldExtractor extractor = new PartitionFieldExtractor(List.of("channel"), true);
+
+    assertEquals("channel=retail%2Feu%3Dvip%20%F0%9F%9A%80", extractor.extractFromJson("{\"channel\":\"retail/eu=vip 🚀\"}"));
+  }
+
+  @Test
+  @DisplayName("uses the unknown partition for an empty field value")
+  void treatsEmptyValuesAsUnknown() {
+    final PartitionFieldExtractor extractor = new PartitionFieldExtractor(List.of("channel"), true);
+
+    assertEquals("channel=unknown", extractor.extractFromJson("{\"channel\":\"\"}"));
+  }
+
+  @Test
   @DisplayName("falls back to 'unknown' instead of failing the sink task")
   void survivesUnusableRecords() {
     final PartitionFieldExtractor extractor = new PartitionFieldExtractor(List.of("channel"), true);

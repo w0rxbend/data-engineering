@@ -20,6 +20,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -55,6 +56,8 @@ public final class PartitionFieldExtractor {
   private static final String NAME_VALUE_DELIMITER = "=";
 
   private static final String NESTED_FIELD_SEPARATOR = "\\.";
+
+  private static final char[] HEX = "0123456789ABCDEF".toCharArray();
 
   private static final Logger log = LoggerFactory.getLogger(PartitionFieldExtractor.class);
 
@@ -93,8 +96,41 @@ public final class PartitionFieldExtractor {
   }
 
   private String segmentFor(final FieldPath fieldPath, final JsonElement root) {
-    final String value = fieldPath.readValueFrom(root);
+    final String value = encodePathSegment(fieldPath.readValueFrom(root));
     return includeFieldNamesInPath ? fieldPath.name() + NAME_VALUE_DELIMITER + value : value;
+  }
+
+  /**
+   * Percent-encodes bytes that would change the object-key hierarchy.
+   *
+   * <p>Partition values are data, not path syntax. Without this boundary a value such as
+   * {@code retail/eu} silently creates an extra directory and stops matching the advertised
+   * Hive partition schema. UTF-8 byte encoding also makes non-ASCII values deterministic across
+   * Connect workers regardless of their default charset.
+   */
+  static String encodePathSegment(final String raw) {
+    if (raw.isEmpty()) {
+      return UNKNOWN_VALUE;
+    }
+    final StringBuilder encoded = new StringBuilder(raw.length());
+    for (final byte value : raw.getBytes(StandardCharsets.UTF_8)) {
+      final int unsigned = value & 0xff;
+      if (isUnreserved(unsigned)) {
+        encoded.append((char) unsigned);
+      } else {
+        encoded.append('%').append(HEX[unsigned >>> 4]).append(HEX[unsigned & 0x0f]);
+      }
+    }
+    return encoded.toString();
+  }
+
+  private static boolean isUnreserved(final int value) {
+    return (value >= 'a' && value <= 'z')
+        || (value >= 'A' && value <= 'Z')
+        || (value >= '0' && value <= '9')
+        || value == '-'
+        || value == '_'
+        || value == '.';
   }
 
   private static JsonElement parse(final String json) {

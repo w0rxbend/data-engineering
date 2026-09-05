@@ -116,6 +116,14 @@ public final class FieldAndTimeBasedPartitioner<T> extends TimeBasedPartitioner<
     if (configured == null) {
       return PARTITION_FIELD_FORMAT_PATH_DEFAULT;
     }
-    return Boolean.parseBoolean(String.valueOf(configured));
+    final String value = String.valueOf(configured).trim();
+    if (value.equalsIgnoreCase("true")) {
+      return true;
+    }
+    if (value.equalsIgnoreCase("false")) {
+      return false;
+    }
+    throw new IllegalArgumentException(
+        "'" + PARTITION_FIELD_FORMAT_PATH_CONFIG + "' must be either true or false, but was '" + value + "'");
   }
 }
