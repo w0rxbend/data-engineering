@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<!--
+  Hive Metastore configuration.
+
+  The metastore is the catalogue that remembers which tables exist and where their
+  files are. Trino asks it "where does delta.shop.orders live?" and then reads the
+  files itself; the metastore never touches the data.
+
+  Its own bookkeeping lives in an embedded Apache Derby database on a Docker volume.
+  A production deployment would point these four properties at a shared PostgreSQL or
+  MySQL server instead - the only reason to do that is so several metastore instances
+  can share one catalogue, which a single-node demonstration does not need.
+-->
+<configuration>
+  <property>
+    <name>javax.jdo.option.ConnectionURL</name>
+    <value>jdbc:derby:;databaseName=/opt/hive/derby/metastore_db;create=true</value>
+  </property>
+  <property>
+    <name>javax.jdo.option.ConnectionDriverName</name>
+    <value>org.apache.derby.jdbc.EmbeddedDriver</value>
+  </property>
+  <property>
+    <name>hive.metastore.warehouse.dir</name>
+    <value>s3://lakehouse/warehouse</value>
+  </property>
+  <property>
+    <name>metastore.thrift.port</name>
+    <value>9083</value>
+  </property>
+</configuration>

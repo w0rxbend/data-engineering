@@ -1,0 +1,48 @@
+<?xml version="1.0"?>
+<!--
+  Hadoop client settings for the Hive Metastore.
+
+  The metastore itself stores only table metadata, but it does touch the object
+  store: when a schema is created it makes sure the schema's directory exists.
+  That happens through Hadoop's S3A filesystem, so S3A has to know where MinIO is
+  and which credentials to use.
+-->
+<configuration>
+  <property>
+    <name>fs.s3a.endpoint</name>
+    <value>http://minio:9000</value>
+  </property>
+  <property>
+    <name>fs.s3a.access.key</name>
+    <value>minioadmin</value>
+  </property>
+  <property>
+    <name>fs.s3a.secret.key</name>
+    <value>minioadmin</value>
+  </property>
+  <!--
+    MinIO serves one host name for every bucket, so the bucket has to travel in the
+    path (http://minio:9000/lakehouse/...) rather than in the host name
+    (http://lakehouse.minio:9000/...), which is what Amazon S3 does by default.
+  -->
+  <property>
+    <name>fs.s3a.path.style.access</name>
+    <value>true</value>
+  </property>
+  <property>
+    <name>fs.s3a.connection.ssl.enabled</name>
+    <value>false</value>
+  </property>
+  <!--
+    Trino writes table locations with the `s3://` scheme. Hadoop 3 only registers a
+    filesystem for `s3a://`, so `s3://` is mapped onto the very same implementation.
+  -->
+  <property>
+    <name>fs.s3.impl</name>
+    <value>org.apache.hadoop.fs.s3a.S3AFileSystem</value>
+  </property>
+  <property>
+    <name>fs.AbstractFileSystem.s3.impl</name>
+    <value>org.apache.hadoop.fs.s3a.S3A</value>
+  </property>
+</configuration>

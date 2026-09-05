@@ -1,0 +1,178 @@
+# Example 09 - a small lakehouse plus an operational database, queried by one Trino cluster.
+#
+# Four long-lived services and three short init containers:
+#
+#   minio           object storage that speaks the Amazon S3 protocol; holds the Parquet files
+#   minio-init      creates the `lakehouse` bucket once and exits
+#   hive-metastore-init  hands the metastore's data volume to its unprivileged user, then exits
+#   hive-metastore  the catalogue that remembers which tables exist and where their files are
+#   postgres        the operational database holding customer master data
+#   postgres-init   loads the customer rows once and exits
+#   trino           the query engine; the only service the Scala program talks to
+#
+# Host ports stay inside the 10900-10999 range that belongs to example 09, so this stack
+# runs side by side with every other example in the repository.
+name: de-09-trino
+
+services:
+  minio:
+    image: minio/minio:RELEASE.2024-09-22T00-33-43Z
+    container_name: de-09-minio
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: "minioadmin"
+      MINIO_ROOT_PASSWORD: "minioadmin"
+    ports:
+      # 10900 is the S3 protocol endpoint, 10901 the browser console.
+      - "10900:9000"
+      - "10901:9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - de-09
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  # Creates the one bucket the lakehouse uses, then exits. `mc` is MinIO's command
+  # line client; `mb --ignore-existing` makes a second run a no-op.
+  minio-init:
+    image: minio/mc:RELEASE.2024-09-16T17-43-14Z
+    container_name: de-09-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        mc alias set local http://minio:9000 minioadmin minioadmin
+        mc mb --ignore-existing local/lakehouse
+        echo "bucket lakehouse is ready"
+    networks:
+      - de-09
+
+  # A Docker named volume starts out owned by root, while the Hive image runs as the
+  # unprivileged `hive` user (uid 1000). This one-shot container hands the volume over
+  # to that user so the metastore may create its Derby database inside it.
+  hive-metastore-init:
+    image: apache/hive:4.0.1
+    container_name: de-09-hive-metastore-init
+    user: "root"
+    entrypoint: ["/bin/sh", "-c", "chown -R 1000:1000 /opt/hive/derby"]
+    volumes:
+      - metastore-db:/opt/hive/derby
+    networks:
+      - de-09
+
+  hive-metastore:
+    image: apache/hive:4.0.1
+    container_name: de-09-hive-metastore
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+      hive-metastore-init:
+        condition: service_completed_successfully
+    environment:
+      SERVICE_NAME: "metastore"
+      # The metastore keeps its own bookkeeping in an embedded Apache Derby database,
+      # which lives on the `metastore-db` volume so it survives a restart.
+      DB_DRIVER: "derby"
+      # Configuration files this stack mounts; the image links them into its conf dir.
+      HIVE_CUSTOM_CONF_DIR: "/hive-custom-conf"
+      # Hadoop ships its S3A filesystem in a separate folder that is not on the default
+      # classpath. Adding it here is what lets the metastore create a folder in MinIO.
+      HIVE_AUX_JARS_PATH: "/opt/hadoop/share/hadoop/tools/lib"
+    volumes:
+      - ./hive:/hive-custom-conf:ro
+      - metastore-db:/opt/hive/derby
+    networks:
+      - de-09
+    healthcheck:
+      # The metastore speaks Thrift, a binary protocol with no health endpoint, so the
+      # check is simply whether the port accepts a connection. Bash can open a TCP
+      # socket through its `/dev/tcp` pseudo device, which saves installing a tool.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/9083"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  postgres:
+    image: postgres:16.4
+    container_name: de-09-postgres
+    environment:
+      POSTGRES_USER: "shop"
+      POSTGRES_PASSWORD: "shop"
+      POSTGRES_DB: "shop"
+    ports:
+      - "10932:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - de-09
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shop -d shop"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  # Loads the customer table. It runs as its own container rather than through the
+  # PostgreSQL image's automatic init folder, because that folder is only read the very
+  # first time the data volume is created - a rule that is easy to trip over while
+  # experimenting. `DROP TABLE IF EXISTS` makes a repeated run harmless.
+  postgres-init:
+    image: postgres:16.4
+    container_name: de-09-postgres-init
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: "shop"
+    volumes:
+      - ./postgres:/seed:ro
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        psql -h postgres -U shop -d shop -v ON_ERROR_STOP=1 -c 'DROP TABLE IF EXISTS customers'
+        psql -h postgres -U shop -d shop -v ON_ERROR_STOP=1 -f /seed/01-customers.sql
+        psql -h postgres -U shop -d shop -c 'SELECT count(*) AS customers FROM customers'
+    networks:
+      - de-09
+
+  trino:
+    image: trinodb/trino:476
+    container_name: de-09-trino
+    depends_on:
+      hive-metastore:
+        condition: service_healthy
+      postgres-init:
+        condition: service_completed_successfully
+    ports:
+      # The coordinator serves both the client protocol and the web interface on one
+      # port: http://localhost:10980
+      - "10980:8080"
+    volumes:
+      - ./trino/catalog:/etc/trino/catalog:ro
+    networks:
+      - de-09
+    healthcheck:
+      # The image ships its own readiness probe, which reports healthy only once the
+      # coordinator can actually accept a query.
+      test: ["CMD", "/usr/lib/trino/bin/health-check"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
+
+networks:
+  de-09:
+    name: de-09-trino
+
+volumes:
+  minio-data:
+  metastore-db:
+  postgres-data:
