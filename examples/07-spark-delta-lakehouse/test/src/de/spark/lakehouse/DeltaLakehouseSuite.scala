@@ -6,6 +6,8 @@ import de.spark.lakehouse.job.DeltaLakehouse
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions.{col, lit}
 
+import scala.concurrent.duration._
+
 /**
  * Tests for the Delta Lake features the example advertises: upserts, schema rules, time travel and maintenance.
  *
@@ -14,6 +16,9 @@ import org.apache.spark.sql.functions.{col, lit}
  * which is exactly why no container is needed to test them.
  */
 class DeltaLakehouseSuite extends SparkSuite {
+
+  // Real Delta maintenance runs several Spark jobs and can exceed MUnit's 30-second default on CI runners.
+  override def munitTimeout: Duration = 2.minutes
 
   private def order(
       orderId: String,

@@ -54,6 +54,11 @@ Mill concurrency is bounded because Spark and Flink test processes are relativel
 memory-heavy. Their module definitions also disable parallel test-suite execution
 where a suite owns a Spark session.
 
+The Delta maintenance suite has a bounded two-minute timeout per test: its real
+`OPTIMIZE` and `VACUUM` Spark jobs can exceed MUnit's 30-second default on a fresh
+CI runner. Compaction, retained rows, and removal of obsolete files are still
+asserted; no maintenance checks are skipped.
+
 The build covers `common` on Scala 2.12, 2.13, and 3 through its Mill cross module,
 plus the Scala examples and the Java Connect plugin. Tests deliberately use fakes,
 temporary files, local Spark/Flink harnesses, and checked-in fixtures rather than
