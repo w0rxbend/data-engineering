@@ -135,9 +135,12 @@ day opens only the files under that `dt=` directory instead of scanning the whol
 optimisation called *partition pruning*.
 
 The date comes from the **window start**, formatted in UTC (Coordinated Universal Time), never from
-the wall clock. That is what makes a replay idempotent: yesterday's data lands in yesterday's
-directories no matter when the job runs. `BucketPath` also replaces any character that would break
-the `column=value/` structure.
+the wall clock. A replay therefore lands in yesterday's directories no matter when it runs.
+Placement is deterministic, but a separately submitted replay is **not idempotent**: `FileSink`
+chooses new part-file names, so replayed rows coexist with the originals. The exactly-once guarantee
+above applies to recovery of the same checkpointed job, not to an operator launching a new job from
+the earliest Kafka offsets. `BucketPath` also replaces characters that would break the
+`column=value/` structure.
 
 ### What changed from the old sbt project
 
@@ -157,12 +160,14 @@ All commands are run from the repository root.
 ### 1. Start the local stack
 
 ```bash
-docker compose -f examples/05-flink-kafka-s3sink/docker/docker-compose.yml up -d
+docker compose -f examples/05-flink-kafka-s3sink/docker/docker-compose.yml up -d --wait
 ```
 
 This starts Kafka (in KRaft mode, so no ZooKeeper), MinIO, a one-shot container that creates the
-`orders` bucket, a Flink JobManager and a Flink TaskManager. `depends_on` conditions make `up` wait
-until each piece is healthy, so there is nothing to poll by hand.
+`orders` bucket, a Flink JobManager and a Flink TaskManager. `--wait` blocks until the long-running
+services are healthy; Compose also refuses to start Flink if the bucket initializer exits non-zero.
+To inspect the initializer explicitly, run `docker compose -f
+examples/05-flink-kafka-s3sink/docker/docker-compose.yml ps --all minio-init` and expect `Exited (0)`.
 
 | Service | Host port | URL / address |
 | --- | --- | --- |
@@ -281,6 +286,11 @@ watermark the test advances by hand). They need no Docker and no cluster:
   `docker compose -f examples/05-flink-kafka-s3sink/docker/docker-compose.yml up -d taskmanager`.
   The job restarts from the last checkpoint. Count the records in the bucket before and after: the
   totals are unchanged, because the in-progress files from the killed attempt were never promoted.
+- **Contrast recovery with replay.** Submit a second fresh copy of the job without clearing the
+  bucket. This example deliberately starts every fresh submission at Kafka's earliest offsets, so
+  it writes a second set of part files. That is not a checkpoint-recovery duplicate; it is a new
+  replay. Production backfills normally write to a new prefix or carry a deterministic business key
+  that a table format such as Iceberg can merge.
 - **Feed late data.** Run the producer again with `EVENT_TIME_SPEEDUP=1`, so new orders carry
   timestamps far behind the current watermark, and watch those windows produce nothing — they are
   already closed. Then raise `--max-out-of-orderness-ms` and try again.

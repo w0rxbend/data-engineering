@@ -92,6 +92,21 @@ final class CustomerBatchProcessFunctionSuite extends munit.FunSuite {
     }
   }
 
+  test("an order for an already-closed window is dropped instead of emitting a second batch") {
+    withHarness { harness =>
+      harness.processElement(record(order("order-on-time", "cust-1", 10L, 500L)), 10L)
+      harness.processWatermark(oneHour)
+      assertEquals(emittedLines(harness).size, 1)
+
+      harness.processElement(record(order("order-late", "cust-1", 20L, 250L)), 20L)
+      harness.processWatermark(oneHour * 2)
+
+      val emitted = emittedLines(harness)
+      assertEquals(emitted.size, 1)
+      assert(!emitted.head._2.contains("order-late"), emitted.head._2)
+    }
+  }
+
   test("buffered orders survive a checkpoint and restore") {
     val snapshot = withHarness { harness =>
       harness.processElement(record(order("order-1", "cust-1", 10L, 500L)), 10L)

@@ -45,4 +45,10 @@ final class JobConfigSuite extends munit.FunSuite {
   test("a non-positive duration is rejected") {
     intercept[IllegalArgumentException](JobConfig.from(Map("CHECKPOINT_INTERVAL_MS" -> "0"), Map.empty))
   }
+
+  test("zero out-of-orderness is valid for a source with monotonic event time") {
+    val config = JobConfig.from(Map("MAX_OUT_OF_ORDERNESS_MS" -> "0"), Map.empty)
+    assertEquals(config.maxOutOfOrdernessMillis, 0L)
+    intercept[IllegalArgumentException](JobConfig.from(Map("MAX_OUT_OF_ORDERNESS_MS" -> "-1"), Map.empty))
+  }
 }

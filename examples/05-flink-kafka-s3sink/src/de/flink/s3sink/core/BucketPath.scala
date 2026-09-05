@@ -17,7 +17,8 @@ import java.time.{Instant, ZoneOffset}
  * called partition pruning.
  *
  * The date is derived from the *window start* and formatted in UTC. Using the window start rather than the wall clock
- * means a replay of yesterday's data lands in yesterday's directories, so re-running the job is idempotent.
+ * means a replay of yesterday's data lands in yesterday's directories. It does not make a fresh replay idempotent:
+ * Flink generates new part-file names for a separately submitted job, so the old and replayed records coexist.
  */
 object BucketPath {
 
