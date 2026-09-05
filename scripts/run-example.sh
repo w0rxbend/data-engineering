@@ -34,11 +34,24 @@ MODULE_DIR=""
 
 if [[ -d "${ROOT_DIR}/examples/${MODULE_OR_NUMBER}" ]]; then
   MODULE_DIR="${ROOT_DIR}/examples/${MODULE_OR_NUMBER}"
-else
+elif [[ "${MODULE_OR_NUMBER}" =~ ^[0-9]{2}$ ]]; then
+  shopt -s nullglob
   MATCHES=("${ROOT_DIR}/examples/${MODULE_OR_NUMBER}-"*/)
-  if [[ ${#MATCHES[@]} -eq 1 && -d "${MATCHES[0]}" ]]; then
+  shopt -u nullglob
+
+  if [[ ${#MATCHES[@]} -eq 1 ]]; then
     MODULE_DIR="${MATCHES[0]%/}"
+  elif [[ ${#MATCHES[@]} -gt 1 ]]; then
+    echo "error: example number ${MODULE_OR_NUMBER} is ambiguous." >&2
+    echo "Matches:"
+    for match in "${MATCHES[@]}"; do
+      echo "  - $(basename "${match}")"
+    done
+    exit 1
   fi
+elif [[ "${MODULE_OR_NUMBER}" =~ ^[0-9]+$ ]]; then
+  echo "error: expected a two-digit module number (01-16), got ${MODULE_OR_NUMBER}." >&2
+  exit 1
 fi
 
 if [[ -z "${MODULE_DIR}" ]]; then
@@ -56,21 +69,28 @@ if [[ ! -d "${MODULE_DIR}" ]]; then
   exit 1
 fi
 
-if [[ ! -f "${COMPOSE_FILE}" ]]; then
-  echo "error: compose file not found for ${MODULE}: ${COMPOSE_FILE}" >&2
-  exit 1
-fi
-
 case "${ACTION}" in
   up)
+    if [[ ! -f "${COMPOSE_FILE}" ]]; then
+      echo "error: compose file not found for ${MODULE}: ${COMPOSE_FILE}" >&2
+      exit 1
+    fi
     echo "Starting ${MODULE} stack..."
     docker compose -f "${COMPOSE_FILE}" up -d --wait
     ;;
   down)
+    if [[ ! -f "${COMPOSE_FILE}" ]]; then
+      echo "error: compose file not found for ${MODULE}: ${COMPOSE_FILE}" >&2
+      exit 1
+    fi
     echo "Stopping ${MODULE} stack..."
     docker compose -f "${COMPOSE_FILE}" down -v
     ;;
   logs)
+    if [[ ! -f "${COMPOSE_FILE}" ]]; then
+      echo "error: compose file not found for ${MODULE}: ${COMPOSE_FILE}" >&2
+      exit 1
+    fi
     docker compose -f "${COMPOSE_FILE}" logs -f
     ;;
   test)
