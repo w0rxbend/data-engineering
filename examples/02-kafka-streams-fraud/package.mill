@@ -1,0 +1,41 @@
+package build.examples.`02-kafka-streams-fraud`
+
+import mill.*
+import mill.scalalib.*
+import build.*
+
+/**
+ * Example 02: card-testing fraud detection with Kafka Streams.
+ *
+ * Kafka Streams is the stream processing library that ships inside Apache Kafka, so the only runtime dependency is a
+ * Kafka cluster. `kafka-streams` brings the library, `kafka-streams-test-utils` brings `TopologyTestDriver`, which runs
+ * the whole topology in-process so the tests need no Docker. uPickle's `ujson` parser turns the JSON produced by
+ * `de.common.json.Codecs` back into the shared domain model.
+ */
+object `package` extends BaseScalaModule {
+  def scalaVersion = Versions.scala3
+
+  def moduleDeps = Seq(build.common(Versions.scala3))
+
+  def mvnDeps = Seq(
+    mvn"org.apache.kafka:kafka-streams:${Versions02.kafka}",
+    mvn"org.apache.kafka:kafka-clients:${Versions02.kafka}",
+    mvn"com.lihaoyi::ujson:${Versions02.upickle}",
+    mvn"org.slf4j:slf4j-simple:${Versions02.slf4j}"
+  )
+
+  def mainClass = Some("de.kafkastreams.fraud.Main")
+
+  object test extends ScalaTests with MunitTests {
+    def mvnDeps = super.mvnDeps() ++ Seq(
+      mvn"org.apache.kafka:kafka-streams-test-utils:${Versions02.kafka}"
+    )
+  }
+}
+
+/** Library versions used only by this example. */
+object Versions02 {
+  val kafka   = "4.1.0"
+  val upickle = "4.4.3"
+  val slf4j   = "2.0.17"
+}
