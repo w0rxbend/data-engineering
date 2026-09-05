@@ -1,8 +1,0 @@
-#!/bin/bash
-
-FILE="example_file.jsonl"
-TIMES=1000
-
-for i in $(seq $TIMES); do
-    cat "$FILE" >> "ext${FILE}"
-done
