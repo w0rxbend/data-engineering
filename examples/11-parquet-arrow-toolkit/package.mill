@@ -1,0 +1,74 @@
+package build.examples.`11-parquet-arrow-toolkit`
+
+import mill.*
+import mill.scalalib.*
+import build.*
+
+/**
+ * Example 11: Apache Parquet on disk and Apache Arrow in memory, with no query engine in sight.
+ *
+ * Every other example in this repository stores columnar data or moves columnar batches between processes, but always
+ * behind an engine (Apache Spark, Trino, PrestoDB) that hides the file and the memory layout. This module removes the
+ * engine: it writes Parquet files itself, reads their footer metadata itself, and builds Arrow vectors itself, so the
+ * two formats stop being implementation details and become things you can look at.
+ *
+ * Because everything happens inside one JVM (Java Virtual Machine) process against a directory on disk, the tests can
+ * cover the whole example without a single container.
+ */
+object `package` extends BaseScalaModule {
+  def scalaVersion = Versions.scala3
+
+  def moduleDeps = Seq(build.common(Versions.scala3))
+
+  def mvnDeps = Seq(
+    // parquet-avro writes and reads Parquet files. Avro is used only as the in-memory
+    // record shape handed to the writer; no Avro file is ever produced.
+    mvn"org.apache.parquet:parquet-avro:${ExampleVersions.parquet}",
+    // The Parquet library is built on the Hadoop filesystem and configuration APIs.
+    // These two shaded jars replace several dozen unshaded Hadoop artifacts.
+    mvn"org.apache.hadoop:hadoop-client-api:${ExampleVersions.hadoop}",
+    mvn"org.apache.hadoop:hadoop-client-runtime:${ExampleVersions.hadoop}",
+    // Zstandard ("zstd") is one of the two compression codecs this example compares.
+    // Its native library ships in this jar; the shaded Hadoop runtime does not carry it.
+    mvn"com.github.luben:zstd-jni:${ExampleVersions.zstdJni}",
+    // Apache Arrow: the columnar *memory* format. `arrow-vector` holds the vector
+    // classes and the IPC (inter-process communication) readers and writers;
+    // `arrow-memory-netty` is the off-heap buffer allocator they need at run time.
+    mvn"org.apache.arrow:arrow-vector:${ExampleVersions.arrow}",
+    mvn"org.apache.arrow:arrow-memory-netty:${ExampleVersions.arrow}",
+    // Uploads the finished archive to MinIO when the example is pointed at object
+    // storage instead of a local directory.
+    mvn"software.amazon.awssdk:s3:${ExampleVersions.awsSdk}",
+    mvn"org.slf4j:slf4j-simple:${ExampleVersions.slf4j}"
+  )
+
+  /**
+   * Apache Arrow stores its vectors in off-heap memory reached through `java.nio.ByteBuffer` internals that the Java
+   * module system closed off in Java 9. Without these two flags every Arrow allocation fails at startup with
+   * `java.lang.UnsupportedOperationException: sun.misc.Unsafe or java.nio.DirectByteBuffer.<init>(long, int) not
+   * available`. They are the flags the Arrow project itself documents for Java 9 and later.
+   */
+  def arrowJvmArgs = Seq(
+    "--add-opens=java.base/java.nio=ALL-UNNAMED",
+    "-Dio.netty.tryReflectionSetAccessible=true"
+  )
+
+  def forkArgs = arrowJvmArgs
+
+  def mainClass = Some("de.parquet.arrow.Main")
+
+  /** `ScalafmtModule` is mixed in explicitly so that `reformat` also covers the test sources. */
+  object test extends ScalaTests with MunitTests with mill.scalalib.scalafmt.ScalafmtModule {
+    def forkArgs = arrowJvmArgs
+  }
+}
+
+/** Library versions pinned by this example only, so the root build file stays untouched. */
+object ExampleVersions {
+  val parquet = "1.15.2"
+  val hadoop  = "3.4.1"
+  val arrow   = "18.3.0"
+  val zstdJni = "1.5.7-16"
+  val awsSdk  = "2.31.78"
+  val slf4j   = "2.0.17"
+}
